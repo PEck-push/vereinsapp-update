@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // adminUsers doc ID IS the uid (set at admin creation)
+    function isAdminOfClub(clubId) {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/clubs/$(clubId)/adminUsers/$(request.auth.uid));
+    }
+
+    // FIXED: Player docs use Firestore-generated IDs (not uids).
+    // playerUids/{uid} is a mapping doc written by Admin SDK in /api/auth/set-claims.
+    function isPlayerOfClub(clubId) {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/clubs/$(clubId)/playerUids/$(request.auth.uid));
+    }
+
+    function isOwnPlayerDoc() {
+      return isSignedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    match /clubs/{clubId} {
+      allow read: if isAdminOfClub(clubId) || isPlayerOfClub(clubId);
+      allow create: if false;
+      allow update, delete: if isAdminOfClub(clubId);
+
+      match /playerUids/{uid} {
+        allow read: if isSignedIn() && request.auth.uid == uid;
+        allow write: if false; // Admin SDK only
+      }
+
+      match /adminUsers/{uid} {
+        allow read, write: if isAdminOfClub(clubId);
+      }
+
+      match /teams/{teamId} {
+        allow read: if isAdminOfClub(clubId) || isPlayerOfClub(clubId);
+        allow write: if isAdminOfClub(clubId);
+      }
+
+      match /players/{playerId} {
+        allow read, write: if isAdminOfClub(clubId);
+        allow read: if isOwnPlayerDoc();
+        allow update: if isOwnPlayerDoc() &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['phone', 'photoUrl', 'fcmTokens', 'notificationPrefs', 'updatedAt']);
+      }
+
+      match /events/{eventId} {
+        allow read: if isAdminOfClub(clubId) || isPlayerOfClub(clubId);
+        allow create, update, delete: if isAdminOfClub(clubId);
+
+        match /responses/{responsePlayerId} {
+          allow read: if isAdminOfClub(clubId);
+          allow read: if isSignedIn() &&
+            get(/databases/$(database)/documents/clubs/$(clubId)/playerUids/$(request.auth.uid)).data.playerId == responsePlayerId;
+          allow create, update: if isSignedIn() &&
+            get(/databases/$(database)/documents/clubs/$(clubId)/playerUids/$(request.auth.uid)).data.playerId == responsePlayerId &&
+            request.resource.data.keys().hasOnly(['playerId','status','reason','declineCategory','respondedAt','source']) &&
+            request.resource.data.status in ['accepted', 'declined'] &&
+            request.resource.data.playerId == responsePlayerId;
+          allow delete: if isAdminOfClub(clubId);
+        }
+      }
+
+      match /matchStats/{statId} {
+        allow read: if isAdminOfClub(clubId) || isPlayerOfClub(clubId);
+        allow write: if isAdminOfClub(clubId);
+      }
+
+      match /messages/{messageId} {
+        allow read, write: if isAdminOfClub(clubId);
+      }
+    }
+  }
+}
