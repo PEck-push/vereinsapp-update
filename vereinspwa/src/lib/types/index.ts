@@ -3,10 +3,12 @@ export interface Club {
   name: string
   slug: string
   logoUrl?: string
+  primaryColor?: string
   createdAt: Date
   settings: {
     timezone: string
     defaultSport: string
+    seasonStartMonth?: number
   }
 }
 
@@ -26,6 +28,7 @@ export interface Player {
   lastName: string
   email: string
   phone?: string
+  photoUrl?: string
   dateOfBirth?: Date
   jerseyNumber?: number
   position?: 'Tormann' | 'Abwehr' | 'Mittelfeld' | 'Sturm'
@@ -59,11 +62,14 @@ export type WithFirestoreTimestamps<T> = {
     : T[K]
 }
 
+export type ClubEventStatus = 'scheduled' | 'cancelled' | 'completed'
+
 export interface ClubEvent {
   id: string
   clubId: string
   title: string
   type: 'training' | 'match' | 'meeting' | 'other'
+  status: ClubEventStatus
   startDate: Date
   endDate?: Date
   location?: string
@@ -75,21 +81,26 @@ export interface ClubEvent {
     declined: number
     total: number
   }
+  /** Set when status changes to 'cancelled' */
+  cancelReason?: string
+  /** Flag set by hourly reminder function to avoid duplicate sends */
+  reminders2hSent?: boolean
   createdBy: string
   createdAt: Date
   updatedAt: Date
 }
 
+export type DeclineCategory = 'injury' | 'work' | 'private' | 'other'
+
 export interface EventResponse {
   playerId: string
   status: 'accepted' | 'declined'
   reason?: string
-  declineCategory?: 'injury' | 'work' | 'private' | 'other'
+  declineCategory?: DeclineCategory
   respondedAt: Date
   source: 'pwa' | 'email'
 }
 
-// Added in Sprint 5
 export interface PlayerMinutes {
   playerId: string
   minuteIn: number    // 0 = Startelf
@@ -112,7 +123,3 @@ export interface MatchStat {
   playerMinutes: PlayerMinutes[]
   createdAt: Date
 }
-
-// Added status to ClubEvent (Sprint 5 fix – used for filtering cancelled events)
-// Extend via declaration merging is not possible, so update interface here:
-export type ClubEventStatus = 'scheduled' | 'cancelled' | 'completed'
