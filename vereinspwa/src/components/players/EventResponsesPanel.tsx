@@ -59,7 +59,7 @@ export function EventResponsesPanel({
         status,
         source: 'pwa',
         respondedAt: serverTimestamp(),
-      } satisfies Partial<EventResponse>,
+      },
       { merge: true }
     )
   }
@@ -136,7 +136,7 @@ export function EventResponsesPanel({
                   )}
                   {resp?.reason && (
                     <span className="text-xs text-gray-400 italic">
-                      „{resp.reason}"
+                      &bdquo;{resp.reason}&ldquo;
                     </span>
                   )}
                 </div>
