@@ -282,7 +282,7 @@ function TeamDetail({
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} domain={[0, activePlayers.length || 10]} />
                 <Tooltip
-                  formatter={(value, _, props) => [props.payload.label, '']}
+                  formatter={(value: any, _: any, props: any) => [props.payload.label, '']}
                   labelStyle={{ fontWeight: 600 }}
                 />
                 <Bar dataKey="accepted" radius={[3, 3, 0, 0]} fill={team.color} />
@@ -303,7 +303,7 @@ function TeamDetail({
               >
                 <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={80} />
-                <Tooltip formatter={(v) => [`${v}%`, 'Quote']} />
+                <Tooltip formatter={(v: any) => [`${v}%`, 'Quote']} />
                 <Bar dataKey="quote" radius={[0, 3, 3, 0]} label={{ position: 'right', fontSize: 11 }}>
                   {rankData.map((_, i) => (
                     <Cell key={i} fill={i < 3 ? RANK_COLORS[i] : team.color} />
