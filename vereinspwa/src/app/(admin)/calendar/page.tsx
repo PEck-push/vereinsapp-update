@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { useEvents } from '@/lib/hooks/useEvents'
 import { useTeams } from '@/lib/hooks/useTeams'
+import { EventSheet } from '@/components/events/EventSheet'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -29,7 +30,6 @@ const TYPE_LABELS: Record<string, string> = {
   other: 'Termin',
 }
 
-/** Amber fallback for club-wide events without a team */
 const CLUB_EVENT_COLOR = '#F59E0B'
 
 function toDate(d: unknown): Date {
@@ -54,7 +54,6 @@ function getDaysInMonth(year: number, month: number): Date[] {
   return days
 }
 
-/** Get the display color for an event based on its first team's color */
 function getEventColor(event: ClubEvent, teamMap: Map<string, Team>): string {
   if (event.teamIds.length === 0) return CLUB_EVENT_COLOR
   const firstTeam = teamMap.get(event.teamIds[0])
@@ -62,11 +61,12 @@ function getEventColor(event: ClubEvent, teamMap: Map<string, Team>): string {
 }
 
 export default function CalendarPage() {
-  const { events, loading } = useEvents()
+  const { events, loading, addEvent } = useEvents()
   const { teams } = useTeams()
   const [filterTeam, setFilterTeam] = useState('all')
   const [currentDate, setCurrentDate] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
+  const [sheetOpen, setSheetOpen] = useState(false)
 
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth()
@@ -117,6 +117,10 @@ export default function CalendarPage() {
     setSelectedDate(new Date())
   }
 
+  async function handleAddEvent(data: Omit<ClubEvent, 'id' | 'clubId' | 'responseCount' | 'createdAt' | 'updatedAt'>) {
+    await addEvent(data)
+  }
+
   const today = new Date()
   const selectedDayEvents = selectedDate ? getEventsForDay(selectedDate) : []
 
@@ -157,9 +161,7 @@ export default function CalendarPage() {
             </SelectContent>
           </Select>
           <Button
-            onClick={() => {
-              // TODO: open event creation sheet
-            }}
+            onClick={() => setSheetOpen(true)}
             style={{ backgroundColor: '#e94560', borderRadius: '6px' }}
           >
             <Plus className="w-4 h-4 mr-2" />
@@ -206,7 +208,6 @@ export default function CalendarPage() {
         <div className="flex gap-4 flex-col lg:flex-row">
           {/* Calendar Grid */}
           <div className="flex-1 bg-white rounded-lg border overflow-hidden" style={{ borderRadius: '8px' }}>
-            {/* Weekday Headers */}
             <div className="grid grid-cols-7 border-b">
               {WEEKDAYS.map(d => (
                 <div key={d} className="py-2 text-center text-xs font-medium text-gray-400">
@@ -215,7 +216,6 @@ export default function CalendarPage() {
               ))}
             </div>
 
-            {/* Day Cells */}
             <div className="grid grid-cols-7">
               {grid.map((date, i) => {
                 const isCurrentMonth = date.getMonth() === month
@@ -361,7 +361,7 @@ export default function CalendarPage() {
         </div>
       )}
 
-      {/* Legend — dynamic from actual teams */}
+      {/* Legend */}
       <div className="flex items-center gap-4 mt-4 text-xs text-gray-500 flex-wrap">
         {teams.map(t => (
           <div key={t.id} className="flex items-center gap-1.5">
@@ -374,6 +374,15 @@ export default function CalendarPage() {
           Vereins-Events
         </div>
       </div>
+
+      {/* Event Sheet */}
+      <EventSheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        event={null}
+        teams={teams}
+        onSubmit={handleAddEvent}
+      />
     </div>
   )
 }
