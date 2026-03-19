@@ -24,6 +24,11 @@ export async function registerFCMToken(playerId: string): Promise<void> {
   }
 }
 
+// Alias used by NotificationBanner in players/
+export async function getOrUpdateFCMToken(playerId: string): Promise<void> {
+  return registerFCMToken(playerId)
+}
+
 export async function removeFCMToken(playerId: string, token: string): Promise<void> {
   await updateDoc(doc(db, 'clubs', CLUB_ID, 'players', playerId), { fcmTokens: arrayRemove(token) })
 }
