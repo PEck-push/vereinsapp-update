@@ -76,11 +76,13 @@ export default function PlayersPage() {
     setSheetOpen(true)
   }
 
-  async function handleSheetSubmit(data: Parameters<typeof addPlayer>[0]) {
+  async function handleSheetSubmit(data: Parameters<typeof addPlayer>[0] & { dateOfBirth?: string | Date }) {
     const submitData = {
       ...data,
       jerseyNumber: data.jerseyNumber || undefined,
-      dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth as unknown as string) : undefined,
+      dateOfBirth: data.dateOfBirth
+        ? (data.dateOfBirth instanceof Date ? data.dateOfBirth : new Date(data.dateOfBirth as string))
+        : undefined,
     }
     if (editingPlayer) {
       await updatePlayer(editingPlayer.id, submitData)
