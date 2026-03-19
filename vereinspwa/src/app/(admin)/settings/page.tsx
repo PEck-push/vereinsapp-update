@@ -12,7 +12,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { toast } from '@/components/ui/toaster'
-import { Camera, Check, ClipboardCopy, Loader2 } from 'lucide-react'
+import { Camera, Check, ChevronRight, ClipboardCopy, Loader2, Users } from 'lucide-react'
+import Link from 'next/link'
 
 export default function SettingsPage() {
   return (
@@ -20,6 +21,10 @@ export default function SettingsPage() {
       <h1 className="text-2xl font-semibold text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>
         Einstellungen
       </h1>
+
+      {/* Quick Navigation */}
+      <SettingsNav />
+
       <ClubProfileSection />
       <Separator />
       <AdminProfileSection />
@@ -27,6 +32,45 @@ export default function SettingsPage() {
       <CalendarSubscriptionsSection />
       <Separator />
       <SeasonSection />
+    </div>
+  )
+}
+
+// ─── Settings Navigation ──────────────────────────────────────────────────────
+function SettingsNav() {
+  const { teams } = useTeams()
+
+  const links = [
+    {
+      href: '/settings/teams',
+      label: 'Mannschaften verwalten',
+      description: `${teams.length} ${teams.length === 1 ? 'Mannschaft' : 'Mannschaften'} angelegt`,
+      icon: Users,
+    },
+  ]
+
+  return (
+    <div className="space-y-2">
+      {links.map(({ href, label, description, icon: Icon }) => (
+        <Link
+          key={href}
+          href={href}
+          className="flex items-center gap-4 p-4 bg-white rounded-lg border hover:shadow-sm transition-shadow group"
+          style={{ borderRadius: '8px' }}
+        >
+          <div
+            className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+            style={{ backgroundColor: '#1a1a2e' }}
+          >
+            <Icon className="w-5 h-5 text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-900">{label}</p>
+            <p className="text-xs text-gray-400">{description}</p>
+          </div>
+          <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors" />
+        </Link>
+      ))}
     </div>
   )
 }
@@ -103,7 +147,6 @@ function ClubProfileSection() {
 }
 
 function AdminProfileSection() {
-  // Guard: auth may be null during build-time static generation
   const user = auth?.currentUser ?? null
   const [currentPw, setCurrentPw] = useState('')
   const [newPw, setNewPw] = useState('')
