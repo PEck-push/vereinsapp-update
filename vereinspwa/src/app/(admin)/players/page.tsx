@@ -26,6 +26,20 @@ import {
 import { Archive, Loader2, Plus, Search, UserX } from 'lucide-react'
 import type { Player } from '@/lib/types'
 
+// Matches PlayerFormValues from PlayerSheet exactly
+type PlayerFormData = {
+  firstName: string
+  lastName: string
+  email: string
+  phone?: string
+  dateOfBirth?: string
+  jerseyNumber?: number | ''
+  position?: 'Tormann' | 'Abwehr' | 'Mittelfeld' | 'Sturm'
+  teamIds: string[]
+  status: 'active' | 'injured' | 'inactive'
+  notificationPrefs: { push: boolean; email: boolean }
+}
+
 const STATUS_BADGE: Record<
   Player['status'],
   { label: string; variant: 'success' | 'warning' | 'muted' }
@@ -52,18 +66,19 @@ export default function PlayersPage() {
         !q ||
         `${p.firstName} ${p.lastName}`.toLowerCase().includes(q) ||
         p.email.toLowerCase().includes(q)
-      const matchTeam =
-        filterTeam === 'all' || p.teamIds.includes(filterTeam)
+      const matchTeam = filterTeam === 'all' || p.teamIds.includes(filterTeam)
       const matchStatus = filterStatus === 'all' || p.status === filterStatus
       return matchSearch && matchTeam && matchStatus
     })
   }, [players, search, filterTeam, filterStatus])
 
   function getTeamNames(teamIds: string[]): string {
-    return teamIds
-      .map((id) => teams.find((t) => t.id === id)?.name)
-      .filter(Boolean)
-      .join(', ') || '–'
+    return (
+      teamIds
+        .map((id) => teams.find((t) => t.id === id)?.name)
+        .filter(Boolean)
+        .join(', ') || '–'
+    )
   }
 
   function openEdit(player: Player) {
@@ -76,18 +91,16 @@ export default function PlayersPage() {
     setSheetOpen(true)
   }
 
-  async function handleSheetSubmit(data: Parameters<typeof addPlayer>[0] & { dateOfBirth?: string | Date }) {
-    const submitData = {
+  async function handleSheetSubmit(data: PlayerFormData) {
+    const normalized = {
       ...data,
       jerseyNumber: data.jerseyNumber || undefined,
-      dateOfBirth: data.dateOfBirth
-        ? (data.dateOfBirth instanceof Date ? data.dateOfBirth : new Date(data.dateOfBirth as string))
-        : undefined,
+      dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : undefined,
     }
     if (editingPlayer) {
-      await updatePlayer(editingPlayer.id, submitData)
+      await updatePlayer(editingPlayer.id, normalized)
     } else {
-      await addPlayer(submitData as Parameters<typeof addPlayer>[0])
+      await addPlayer(normalized as Parameters<typeof addPlayer>[0])
     }
   }
 
@@ -106,10 +119,7 @@ export default function PlayersPage() {
             {players.filter((p) => p.status !== 'inactive').length} aktive Spieler
           </p>
         </div>
-        <Button
-          onClick={openCreate}
-          style={{ backgroundColor: '#e94560', borderRadius: '6px' }}
-        >
+        <Button onClick={openCreate} style={{ backgroundColor: '#e94560', borderRadius: '6px' }}>
           <Plus className="w-4 h-4 mr-2" />
           Spieler anlegen
         </Button>
@@ -135,10 +145,7 @@ export default function PlayersPage() {
             {teams.map((t) => (
               <SelectItem key={t.id} value={t.id}>
                 <span className="flex items-center gap-2">
-                  <span
-                    className="inline-block w-2 h-2 rounded-full"
-                    style={{ backgroundColor: t.color }}
-                  />
+                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: t.color }} />
                   {t.name}
                 </span>
               </SelectItem>
@@ -189,7 +196,7 @@ export default function PlayersPage() {
                     <TableCell>
                       <Link
                         href={`/players/${player.id}`}
-                        className="font-medium text-gray-900 hover:underline"
+                        className="font-medium hover:underline"
                         style={{ color: '#1a1a2e' }}
                       >
                         {player.firstName} {player.lastName}
@@ -217,14 +224,7 @@ export default function PlayersPage() {
                           onClick={() => openEdit(player)}
                           title="Bearbeiten"
                         >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            className="w-4 h-4"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                          >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                           </svg>
@@ -249,7 +249,6 @@ export default function PlayersPage() {
         </div>
       )}
 
-      {/* Player Sheet */}
       <PlayerSheet
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}

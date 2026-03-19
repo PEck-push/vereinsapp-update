@@ -29,7 +29,7 @@ const playerSchema = z.object({
   }),
 })
 
-type PlayerFormValues = z.infer<typeof playerSchema>
+export type PlayerFormValues = z.infer<typeof playerSchema>
 
 interface PlayerSheetProps {
   open: boolean
@@ -64,7 +64,6 @@ export function PlayerSheet({ open, onClose, player, teams, onSubmit }: PlayerSh
     },
   })
 
-  // Prefill form when editing
   useEffect(() => {
     if (player) {
       reset({
@@ -118,50 +117,31 @@ export function PlayerSheet({ open, onClose, player, teams, onSubmit }: PlayerSh
         </SheetHeader>
 
         <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
-          {/* Name Row */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="firstName">Vorname *</Label>
               <Input id="firstName" {...register('firstName')} />
-              {errors.firstName && (
-                <p className="text-xs text-red-500">{errors.firstName.message}</p>
-              )}
+              {errors.firstName && <p className="text-xs text-red-500">{errors.firstName.message}</p>}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="lastName">Nachname *</Label>
               <Input id="lastName" {...register('lastName')} />
-              {errors.lastName && (
-                <p className="text-xs text-red-500">{errors.lastName.message}</p>
-              )}
+              {errors.lastName && <p className="text-xs text-red-500">{errors.lastName.message}</p>}
             </div>
           </div>
 
-          {/* Email */}
           <div className="space-y-1.5">
             <Label htmlFor="email">E-Mail *</Label>
-            <Input
-              id="email"
-              type="email"
-              {...register('email')}
-              disabled={isEdit} // Email nicht änderbar nach Erstellung
-            />
-            {errors.email && (
-              <p className="text-xs text-red-500">{errors.email.message}</p>
-            )}
-            {isEdit && (
-              <p className="text-xs text-muted-foreground">
-                E-Mail kann nach Erstellung nicht geändert werden.
-              </p>
-            )}
+            <Input id="email" type="email" {...register('email')} disabled={isEdit} />
+            {errors.email && <p className="text-xs text-red-500">{errors.email.message}</p>}
+            {isEdit && <p className="text-xs text-muted-foreground">E-Mail kann nach Erstellung nicht geändert werden.</p>}
           </div>
 
-          {/* Phone */}
           <div className="space-y-1.5">
             <Label htmlFor="phone">Telefon</Label>
             <Input id="phone" type="tel" {...register('phone')} />
           </div>
 
-          {/* Birthday + Jersey */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="dateOfBirth">Geburtsdatum</Label>
@@ -169,33 +149,19 @@ export function PlayerSheet({ open, onClose, player, teams, onSubmit }: PlayerSh
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="jerseyNumber">Rückennummer</Label>
-              <Input
-                id="jerseyNumber"
-                type="number"
-                min={1}
-                max={99}
-                {...register('jerseyNumber')}
-              />
-              {errors.jerseyNumber && (
-                <p className="text-xs text-red-500">1–99</p>
-              )}
+              <Input id="jerseyNumber" type="number" min={1} max={99} {...register('jerseyNumber')} />
+              {errors.jerseyNumber && <p className="text-xs text-red-500">1–99</p>}
             </div>
           </div>
 
-          {/* Position */}
           <div className="space-y-1.5">
             <Label>Position</Label>
             <Controller
               control={control}
               name="position"
               render={({ field }) => (
-                <Select
-                  value={field.value ?? ''}
-                  onValueChange={field.onChange}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Position wählen" />
-                  </SelectTrigger>
+                <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                  <SelectTrigger><SelectValue placeholder="Position wählen" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Tormann">Tormann</SelectItem>
                     <SelectItem value="Abwehr">Abwehr</SelectItem>
@@ -207,7 +173,6 @@ export function PlayerSheet({ open, onClose, player, teams, onSubmit }: PlayerSh
             />
           </div>
 
-          {/* Teams Multi-Select */}
           <div className="space-y-1.5">
             <Label>Teams</Label>
             <Controller
@@ -224,7 +189,6 @@ export function PlayerSheet({ open, onClose, player, teams, onSubmit }: PlayerSh
             />
           </div>
 
-          {/* Status */}
           <div className="space-y-1.5">
             <Label>Status</Label>
             <Controller
@@ -232,9 +196,7 @@ export function PlayerSheet({ open, onClose, player, teams, onSubmit }: PlayerSh
               name="status"
               render={({ field }) => (
                 <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="active">Aktiv</SelectItem>
                     <SelectItem value="injured">Verletzt</SelectItem>
@@ -245,32 +207,12 @@ export function PlayerSheet({ open, onClose, player, teams, onSubmit }: PlayerSh
             />
           </div>
 
-          {/* Actions */}
           <div className="flex gap-3 pt-4 border-t">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onClose}
-              className="flex-1"
-            >
-              Abbrechen
-            </Button>
-            <Button
-              type="submit"
-              className="flex-1"
-              disabled={isSubmitting}
-              style={{ backgroundColor: '#e94560' }}
-            >
+            <Button type="button" variant="outline" onClick={onClose} className="flex-1">Abbrechen</Button>
+            <Button type="submit" className="flex-1" disabled={isSubmitting} style={{ backgroundColor: '#e94560' }}>
               {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Speichern…
-                </>
-              ) : isEdit ? (
-                'Speichern'
-              ) : (
-                'Anlegen'
-              )}
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Speichern…</>
+              ) : isEdit ? 'Speichern' : 'Anlegen'}
             </Button>
           </div>
         </form>
