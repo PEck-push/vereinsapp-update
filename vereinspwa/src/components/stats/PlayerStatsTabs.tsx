@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import {
   collection,
   getDocs,
@@ -21,7 +21,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
-import type { ClubEvent, EventResponse, MatchStat } from '@/lib/types'
+import type { MatchStat } from '@/lib/types'
 
 interface PlayerStatsTabsProps {
   playerId: string
@@ -46,9 +46,22 @@ export function PlayerStatsTabs({ playerId, teamIds }: PlayerStatsTabsProps) {
 }
 
 // ─── Training Tab ─────────────────────────────────────────────────────────────
+
+interface MonthlyData {
+  month: string
+  attended: number
+  total: number
+}
+
+interface EventData {
+  id: string
+  startDate: Timestamp | string
+  [key: string]: unknown
+}
+
 function TrainingTab({ playerId, teamIds }: { playerId: string; teamIds: string[] }) {
   const [loading, setLoading] = useState(true)
-  const [monthlyData, setMonthlyData] = useState<{ month: string; attended: number; total: number }[]>([])
+  const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([])
   const [totals, setTotals] = useState({ attended: 0, total: 0 })
 
   useEffect(() => {
@@ -59,7 +72,6 @@ function TrainingTab({ playerId, teamIds }: { playerId: string; teamIds: string[
         const sixMonthsAgo = new Date(Date.now() - 24 * 7 * 24 * 60 * 60 * 1000)
         const cutoffTs = Timestamp.fromDate(sixMonthsAgo)
 
-        // Load training events for player's teams
         const eventsSnap = await getDocs(
           query(
             collection(db, 'clubs', CLUB_ID, 'events'),
@@ -70,11 +82,13 @@ function TrainingTab({ playerId, teamIds }: { playerId: string; teamIds: string[
           )
         )
 
-        const events = eventsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as ClubEvent)
+        const events: EventData[] = eventsSnap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+        } as EventData))
 
-        // Load this player's responses
         const responsesByEvent: Record<string, 'accepted' | 'declined' | null> = {}
-        await Promise.all(events.map(async (event) => {
+        await Promise.all(events.map(async (event: EventData) => {
           const respSnap = await getDocs(
             query(
               collection(db, 'clubs', CLUB_ID, 'events', event.id, 'responses'),
@@ -88,12 +102,11 @@ function TrainingTab({ playerId, teamIds }: { playerId: string; teamIds: string[
           }
         }))
 
-        // Group by month (last 6 months)
         const monthMap: Record<string, { attended: number; total: number }> = {}
         for (const event of events) {
           const d = event.startDate instanceof Timestamp
             ? event.startDate.toDate()
-            : new Date(event.startDate as unknown as string)
+            : new Date(event.startDate as string)
           const key = d.toLocaleDateString('de-AT', { month: 'short', year: '2-digit' })
           if (!monthMap[key]) monthMap[key] = { attended: 0, total: 0 }
           monthMap[key].total++
@@ -110,6 +123,7 @@ function TrainingTab({ playerId, teamIds }: { playerId: string; teamIds: string[
       }
     }
     load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playerId, teamIds.join(',')])
 
   if (loading) {
@@ -149,18 +163,21 @@ function TrainingTab({ playerId, teamIds }: { playerId: string; teamIds: string[
 }
 
 // ─── Games Tab ────────────────────────────────────────────────────────────────
+
+interface GameLogEntry {
+  date: Date
+  opponent: string
+  result: { goalsFor: number; goalsAgainst: number }
+  minutesPlayed: number
+  goals: number
+  assists: number
+  homeOrAway: 'home' | 'away'
+  isStarter: boolean
+}
+
 function GamesTab({ playerId, teamIds }: { playerId: string; teamIds: string[] }) {
   const [loading, setLoading] = useState(true)
-  const [gameLog, setGameLog] = useState<{
-    date: Date
-    opponent: string
-    result: { goalsFor: number; goalsAgainst: number }
-    minutesPlayed: number
-    goals: number
-    assists: number
-    homeOrAway: 'home' | 'away'
-    isStarter: boolean
-  }[]>([])
+  const [gameLog, setGameLog] = useState<GameLogEntry[]>([])
   const [totals, setTotals] = useState({ games: 0, starters: 0, minutes: 0, goals: 0, assists: 0, yellow: 0, red: 0 })
 
   useEffect(() => {
@@ -175,12 +192,12 @@ function GamesTab({ playerId, teamIds }: { playerId: string; teamIds: string[] }
           )
         )
 
-        const log: typeof gameLog = []
-        let t = { games: 0, starters: 0, minutes: 0, goals: 0, assists: 0, yellow: 0, red: 0 }
+        const log: GameLogEntry[] = []
+        const t = { games: 0, starters: 0, minutes: 0, goals: 0, assists: 0, yellow: 0, red: 0 }
 
-        for (const d of snap.docs) {
-          const stat = { id: d.id, ...d.data() } as MatchStat
-          const pm = stat.playerMinutes.find(p => p.playerId === playerId)
+        for (const docSnap of snap.docs) {
+          const stat = { id: docSnap.id, ...docSnap.data() } as MatchStat
+          const pm = stat.playerMinutes.find((p: { playerId: string }) => p.playerId === playerId)
           if (!pm) continue
 
           const mp = pm.minuteOut - pm.minuteIn
@@ -192,10 +209,16 @@ function GamesTab({ playerId, teamIds }: { playerId: string; teamIds: string[] }
           if (pm.redCard) t.red++
           if (pm.isStarter) t.starters++
 
-          // Get event date from matchStats createdAt as fallback
-          const createdAt = stat.createdAt instanceof Timestamp
-            ? stat.createdAt.toDate()
-            : new Date(stat.createdAt as unknown as string)
+          // createdAt comes from Firestore as Timestamp, but our type says Date
+          const rawDate = stat.createdAt as unknown
+          let createdAt: Date
+          if (rawDate instanceof Timestamp) {
+            createdAt = rawDate.toDate()
+          } else if (rawDate && typeof (rawDate as { toDate?: () => Date }).toDate === 'function') {
+            createdAt = (rawDate as { toDate: () => Date }).toDate()
+          } else {
+            createdAt = new Date(rawDate as string)
+          }
 
           log.push({
             date: createdAt,
@@ -217,6 +240,7 @@ function GamesTab({ playerId, teamIds }: { playerId: string; teamIds: string[] }
       }
     }
     load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playerId, teamIds.join(',')])
 
   if (loading) {

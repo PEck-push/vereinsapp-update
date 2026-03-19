@@ -25,6 +25,17 @@ const TYPE_LABELS: Record<string, string> = {
   other: 'Termin',
 }
 
+interface ICalEvent {
+  id: string
+  title: string
+  type: string
+  startDate: Timestamp | string
+  endDate?: Timestamp | string
+  location?: string
+  description?: string
+  teamIds?: string[]
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
   const clubId = searchParams.get('clubId')
@@ -58,7 +69,7 @@ export async function GET(request: NextRequest) {
     }
 
     const snap = await eventsQuery.get()
-    const events = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const events: ICalEvent[] = snap.docs.map(d => ({ id: d.id, ...d.data() } as ICalEvent))
 
     // Build iCal
     const lines: string[] = [
