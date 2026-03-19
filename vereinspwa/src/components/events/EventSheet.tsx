@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { MultiSelect } from '@/components/ui/multi-select'
-import { Loader2 } from 'lucide-react'
+import { AlertCircle, Loader2 } from 'lucide-react'
 import type { ClubEvent, Team } from '@/lib/types'
 
 const eventSchema = z.object({
@@ -48,8 +48,23 @@ function toLocalTimeString(d: Date): string {
   return d.toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })
 }
 
+/**
+ * Removes all keys with undefined values from an object.
+ * Firestore throws on undefined — this prevents silent crashes.
+ */
+function stripUndefined<T extends Record<string, unknown>>(obj: T): T {
+  const result = {} as Record<string, unknown>
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      result[key] = value
+    }
+  }
+  return result as T
+}
+
 export function EventSheet({ open, onClose, event, teams, onSubmit }: EventSheetProps) {
   const isEdit = !!event
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const {
     register,
@@ -91,7 +106,6 @@ export function EventSheet({ open, onClose, event, teams, onSubmit }: EventSheet
         teamIds: event.teamIds,
       })
     } else {
-      // Default for new event: tomorrow at 18:00
       const tomorrow = new Date()
       tomorrow.setDate(tomorrow.getDate() + 1)
       reset({
@@ -105,26 +119,41 @@ export function EventSheet({ open, onClose, event, teams, onSubmit }: EventSheet
         teamIds: [],
       })
     }
+    setSubmitError(null)
   }, [event, reset, open])
 
   async function handleFormSubmit(data: EventFormValues) {
-    const startDate = new Date(`${data.startDate}T${data.startTime}:00`)
-    const endDate = data.endTime
-      ? new Date(`${data.startDate}T${data.endTime}:00`)
-      : undefined
+    setSubmitError(null)
+    try {
+      const startDate = new Date(`${data.startDate}T${data.startTime}:00`)
+      const endDate = data.endTime
+        ? new Date(`${data.startDate}T${data.endTime}:00`)
+        : null
 
-    await onSubmit({
-      title: data.title,
-      type: data.type,
-      status: 'scheduled',
-      startDate,
-      endDate,
-      location: data.location || undefined,
-      description: data.description || undefined,
-      teamIds: data.teamIds,
-      createdBy: '', // Will be set by addEvent hook
-    })
-    onClose()
+      // Build event data — use empty string or null instead of undefined
+      // then strip any remaining undefined to be safe for Firestore
+      const eventData = stripUndefined({
+        title: data.title,
+        type: data.type,
+        status: 'scheduled' as const,
+        startDate,
+        ...(endDate && { endDate }),
+        ...(data.location?.trim() && { location: data.location.trim() }),
+        ...(data.description?.trim() && { description: data.description.trim() }),
+        teamIds: data.teamIds,
+        createdBy: '',
+      })
+
+      await onSubmit(eventData)
+      onClose()
+    } catch (err) {
+      console.error('[EventSheet] Submit error:', err)
+      setSubmitError(
+        err instanceof Error
+          ? err.message
+          : 'Termin konnte nicht gespeichert werden. Bitte nochmals versuchen.'
+      )
+    }
   }
 
   const teamOptions = teams.map(t => ({
@@ -140,6 +169,9 @@ export function EventSheet({ open, onClose, event, teams, onSubmit }: EventSheet
           <SheetTitle style={{ fontFamily: 'Outfit, sans-serif', color: '#1a1a2e' }}>
             {isEdit ? 'Termin bearbeiten' : 'Neuen Termin anlegen'}
           </SheetTitle>
+          <SheetDescription className="text-sm text-gray-500">
+            {isEdit ? 'Änderungen werden sofort übernommen.' : 'Erstelle einen neuen Termin für deine Mannschaften.'}
+          </SheetDescription>
         </SheetHeader>
 
         <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
@@ -219,6 +251,14 @@ export function EventSheet({ open, onClose, event, teams, onSubmit }: EventSheet
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </div>
+
+          {/* Error feedback */}
+          {submitError && (
+            <div className="flex items-start gap-2 text-sm text-red-600 bg-red-50 p-3 rounded-md">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{submitError}</span>
+            </div>
+          )}
 
           <div className="flex gap-3 pt-4 border-t">
             <Button type="button" variant="outline" onClick={onClose} className="flex-1">
