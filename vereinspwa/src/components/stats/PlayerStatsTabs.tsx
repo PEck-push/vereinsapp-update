@@ -138,7 +138,7 @@ function TrainingTab({ playerId, teamIds }: { playerId: string; teamIds: string[
             <BarChart data={monthlyData} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
               <XAxis dataKey="month" tick={{ fontSize: 10 }} />
               <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip formatter={(v, _, props) => [`${v}/${props.payload.total}`, 'Anwesend']} />
+              <Tooltip formatter={(v: any, _name: any, entry: any) => [`${v}/${entry.payload.total}`, 'Anwesend']} />
               <Bar dataKey="attended" fill="#1a1a2e" radius={[2, 2, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
