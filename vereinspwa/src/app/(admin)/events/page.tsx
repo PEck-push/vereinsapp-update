@@ -43,19 +43,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Timestamp } from 'firebase/firestore'
-import type { ClubEvent, ClubEventStatus } from '@/lib/types'
+import type { ClubEvent } from '@/lib/types'
 
 const TYPE_LABELS: Record<string, string> = {
   training: 'Training',
   match: 'Spiel',
   meeting: 'Besprechung',
   other: 'Termin',
-}
-
-const STATUS_BADGE: Record<ClubEventStatus, { label: string; variant: 'success' | 'warning' | 'muted' | 'destructive' }> = {
-  scheduled: { label: 'Geplant', variant: 'success' },
-  cancelled: { label: 'Abgesagt', variant: 'destructive' },
-  completed: { label: 'Abgeschlossen', variant: 'muted' },
 }
 
 function toDate(d: unknown): Date {
@@ -130,9 +124,9 @@ export default function EventsPage() {
   async function handleCancel() {
     if (!cancelTarget) return
     await updateEvent(cancelTarget.id, {
-      status: 'cancelled' as ClubEventStatus,
+      status: 'cancelled',
       cancelReason: cancelReason.trim() || undefined,
-    })
+    } as Partial<ClubEvent>)
     setCancelTarget(null)
     setCancelReason('')
   }
@@ -150,8 +144,8 @@ export default function EventsPage() {
       .join(', ') || '–'
   }
 
-  async function handleSendReminder(playerId: string) {
-    // TODO: Implement single-player reminder via /api/notifications/send
+  async function handleSendReminder(_playerId: string) {
+    // TODO: call /api/notifications/send for single player
   }
 
   return (
@@ -250,7 +244,6 @@ export default function EventsPage() {
             const date = toDate(event.startDate)
             const isPast = date < now
             const isExpanded = expandedId === event.id
-            const statusInfo = STATUS_BADGE[event.status ?? 'scheduled']
             const eventPlayers = players.filter(
               p => p.teamIds.some(id => event.teamIds.includes(id)) && p.status !== 'inactive'
             )
@@ -261,9 +254,7 @@ export default function EventsPage() {
                 className={`bg-white rounded-lg border overflow-hidden ${isPast ? 'opacity-70' : ''}`}
                 style={{ borderRadius: '8px' }}
               >
-                {/* Event Row */}
                 <div className="flex items-center gap-4 p-4">
-                  {/* Date block */}
                   <div
                     className="w-12 h-12 rounded-lg flex flex-col items-center justify-center shrink-0 text-white"
                     style={{ backgroundColor: '#1a1a2e' }}
@@ -274,15 +265,11 @@ export default function EventsPage() {
                     </span>
                   </div>
 
-                  {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
                       <span className="text-xs text-gray-400">
                         {TYPE_LABELS[event.type] ?? 'Termin'}
                       </span>
-                      <Badge variant={statusInfo.variant} className="text-[10px]">
-                        {statusInfo.label}
-                      </Badge>
                     </div>
                     <p className="font-medium text-gray-900 text-sm truncate">{event.title}</p>
                     <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-400">
@@ -302,7 +289,6 @@ export default function EventsPage() {
                     </div>
                   </div>
 
-                  {/* Response counts */}
                   <div className="flex items-center gap-1.5 shrink-0">
                     <Badge variant="success" className="text-xs">
                       {event.responseCount?.accepted ?? 0}
@@ -315,7 +301,6 @@ export default function EventsPage() {
                     </Badge>
                   </div>
 
-                  {/* Expand */}
                   <button
                     onClick={() => setExpandedId(isExpanded ? null : event.id)}
                     className="p-1.5 text-gray-400 hover:text-gray-700 shrink-0"
@@ -323,7 +308,6 @@ export default function EventsPage() {
                     {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   </button>
 
-                  {/* Actions */}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 shrink-0">
@@ -334,15 +318,13 @@ export default function EventsPage() {
                       <DropdownMenuItem onClick={() => openEdit(event)}>
                         Bearbeiten
                       </DropdownMenuItem>
-                      {event.status !== 'cancelled' && (
-                        <DropdownMenuItem
-                          onClick={() => setCancelTarget(event)}
-                          className="text-orange-600"
-                        >
-                          <XCircle className="w-4 h-4 mr-2" />
-                          Absagen
-                        </DropdownMenuItem>
-                      )}
+                      <DropdownMenuItem
+                        onClick={() => setCancelTarget(event)}
+                        className="text-orange-600"
+                      >
+                        <XCircle className="w-4 h-4 mr-2" />
+                        Absagen
+                      </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() => setDeleteTarget(event)}
                         className="text-red-600"
@@ -354,7 +336,6 @@ export default function EventsPage() {
                   </DropdownMenu>
                 </div>
 
-                {/* Expanded: Response Panel */}
                 {isExpanded && (
                   <div className="border-t px-4 py-3 bg-gray-50">
                     <EventResponsePanel
@@ -393,7 +374,7 @@ export default function EventsPage() {
             erhalten eine Push-Benachrichtigung.
           </p>
           <div className="space-y-1.5">
-            <label className="text-xs text-gray-500">Grund (optional, wird in Benachrichtigung angezeigt)</label>
+            <label className="text-xs text-gray-500">Grund (optional)</label>
             <Input
               value={cancelReason}
               onChange={e => setCancelReason(e.target.value)}
