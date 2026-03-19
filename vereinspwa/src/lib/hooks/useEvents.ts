@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  addDoc, collection, doc, increment, onSnapshot,
+  addDoc, collection, doc, getDoc, increment, onSnapshot,
   orderBy, query, serverTimestamp, setDoc, updateDoc, where,
 } from 'firebase/firestore'
 import { db } from '@/lib/firebase/client'
@@ -9,6 +9,36 @@ import type { ClubEvent, EventResponse } from '@/lib/types'
 
 function eventsRef() { return collection(db, 'clubs', CLUB_ID, 'events') }
 function responsesRef(eventId: string) { return collection(db, 'clubs', CLUB_ID, 'events', eventId, 'responses') }
+
+// Standalone export – used by EventResponseDialog and other components
+// that cannot call the hook (e.g. outside React component tree)
+export async function submitResponse(
+  eventId: string,
+  playerId: string,
+  response: Omit<EventResponse, 'respondedAt' | 'source'>
+): Promise<void> {
+  const responseDoc = doc(responsesRef(eventId), playerId)
+  const existing = await getDoc(responseDoc)
+  const previousStatus = existing.exists() ? (existing.data().status as string) : null
+
+  await setDoc(responseDoc, { ...response, respondedAt: serverTimestamp(), source: 'pwa' }, { merge: true })
+
+  const eventDoc = doc(eventsRef(), eventId)
+  const newStatus = response.status
+  if (!previousStatus) {
+    await updateDoc(eventDoc, {
+      [`responseCount.${newStatus}`]: increment(1),
+      'responseCount.total': increment(1),
+      updatedAt: serverTimestamp(),
+    })
+  } else if (previousStatus !== newStatus) {
+    await updateDoc(eventDoc, {
+      [`responseCount.${previousStatus}`]: increment(-1),
+      [`responseCount.${newStatus}`]: increment(1),
+      updatedAt: serverTimestamp(),
+    })
+  }
+}
 
 export function useEvents(teamId?: string) {
   const [events, setEvents] = useState<ClubEvent[]>([])
@@ -44,23 +74,6 @@ export function useEvents(teamId?: string) {
     await deleteDoc(doc(eventsRef(), id))
   }
 
-  async function submitResponse(eventId: string, playerId: string, response: Omit<EventResponse, 'respondedAt' | 'source'>) {
-    const responseDoc = doc(responsesRef(eventId), playerId)
-    const { getDoc } = await import('firebase/firestore')
-    const existing = await getDoc(responseDoc)
-    const previousStatus = existing.exists() ? (existing.data().status as string) : null
-
-    await setDoc(responseDoc, { ...response, respondedAt: serverTimestamp(), source: 'pwa' }, { merge: true })
-
-    const eventDoc = doc(eventsRef(), eventId)
-    const newStatus = response.status
-    if (!previousStatus) {
-      await updateDoc(eventDoc, { [`responseCount.${newStatus}`]: increment(1), 'responseCount.total': increment(1), updatedAt: serverTimestamp() })
-    } else if (previousStatus !== newStatus) {
-      await updateDoc(eventDoc, { [`responseCount.${previousStatus}`]: increment(-1), [`responseCount.${newStatus}`]: increment(1), updatedAt: serverTimestamp() })
-    }
-  }
-
   async function adminSetResponse(eventId: string, playerId: string, status: 'accepted' | 'declined') {
     return submitResponse(eventId, playerId, { playerId, status })
   }
@@ -74,8 +87,7 @@ export function useEventResponses(eventId: string) {
   useEffect(() => {
     if (!eventId) return
     const unsub = onSnapshot(responsesRef(eventId), (snap) => {
-      setResponses(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as EventResponse & { id: string })
-      )
+      setResponses(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as EventResponse & { id: string }))
       setLoading(false)
     })
     return unsub
