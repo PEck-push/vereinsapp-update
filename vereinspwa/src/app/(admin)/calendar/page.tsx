@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/select'
 import { ChevronLeft, ChevronRight, Loader2, Plus } from 'lucide-react'
 import { Timestamp } from 'firebase/firestore'
-import type { ClubEvent } from '@/lib/types'
+import type { ClubEvent, Team } from '@/lib/types'
 
 const WEEKDAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
 const MONTHS = [
@@ -22,19 +22,15 @@ const MONTHS = [
   'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
 ]
 
-const TYPE_COLORS: Record<string, string> = {
-  training: '#1a1a2e',
-  match: '#e94560',
-  meeting: '#3b82f6',
-  other: '#6b7280',
-}
-
 const TYPE_LABELS: Record<string, string> = {
   training: 'Training',
   match: 'Spiel',
   meeting: 'Besprechung',
   other: 'Termin',
 }
+
+/** Amber fallback for club-wide events without a team */
+const CLUB_EVENT_COLOR = '#F59E0B'
 
 function toDate(d: unknown): Date {
   if (d instanceof Timestamp) return d.toDate()
@@ -58,6 +54,13 @@ function getDaysInMonth(year: number, month: number): Date[] {
   return days
 }
 
+/** Get the display color for an event based on its first team's color */
+function getEventColor(event: ClubEvent, teamMap: Map<string, Team>): string {
+  if (event.teamIds.length === 0) return CLUB_EVENT_COLOR
+  const firstTeam = teamMap.get(event.teamIds[0])
+  return firstTeam?.color ?? CLUB_EVENT_COLOR
+}
+
 export default function CalendarPage() {
   const { events, loading } = useEvents()
   const { teams } = useTeams()
@@ -68,22 +71,26 @@ export default function CalendarPage() {
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth()
 
+  const teamMap = useMemo(
+    () => new Map(teams.map((t) => [t.id, t])),
+    [teams]
+  )
+
   const filteredEvents = useMemo(() => {
     if (filterTeam === 'all') return events
+    if (filterTeam === 'club-events') return events.filter(e => e.teamIds.length === 0)
     return events.filter(e => e.teamIds.includes(filterTeam))
   }, [events, filterTeam])
 
   const days = getDaysInMonth(year, month)
 
-  // Monday-start: shift so week starts on Monday
-  const firstDayOfWeek = (days[0].getDay() + 6) % 7 // 0=Mon
+  const firstDayOfWeek = (days[0].getDay() + 6) % 7
   const paddingBefore = Array.from({ length: firstDayOfWeek }, (_, i) => {
     const d = new Date(year, month, -firstDayOfWeek + i + 1)
     return d
   })
 
   const allCells = [...paddingBefore, ...days]
-  // Pad to full weeks
   const remaining = (7 - (allCells.length % 7)) % 7
   const paddingAfter = Array.from({ length: remaining }, (_, i) => {
     const d = new Date(year, month + 1, i + 1)
@@ -125,11 +132,17 @@ export default function CalendarPage() {
         </h1>
         <div className="flex items-center gap-2">
           <Select value={filterTeam} onValueChange={setFilterTeam}>
-            <SelectTrigger className="w-44">
+            <SelectTrigger className="w-48">
               <SelectValue placeholder="Alle Teams" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Alle Teams</SelectItem>
+              <SelectItem value="all">Alle anzeigen</SelectItem>
+              <SelectItem value="club-events">
+                <span className="flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: CLUB_EVENT_COLOR }} />
+                  Vereins-Events
+                </span>
+              </SelectItem>
               {teams.map(t => (
                 <SelectItem key={t.id} value={t.id}>
                   <span className="flex items-center gap-2">
@@ -145,7 +158,7 @@ export default function CalendarPage() {
           </Select>
           <Button
             onClick={() => {
-              // TODO: Navigate to event creation
+              // TODO: open event creation sheet
             }}
             style={{ backgroundColor: '#e94560', borderRadius: '6px' }}
           >
@@ -196,10 +209,7 @@ export default function CalendarPage() {
             {/* Weekday Headers */}
             <div className="grid grid-cols-7 border-b">
               {WEEKDAYS.map(d => (
-                <div
-                  key={d}
-                  className="py-2 text-center text-xs font-medium text-gray-400"
-                >
+                <div key={d} className="py-2 text-center text-xs font-medium text-gray-400">
                   {d}
                 </div>
               ))}
@@ -232,24 +242,26 @@ export default function CalendarPage() {
                     >
                       {date.getDate()}
                     </span>
-                    {/* Event dots */}
                     <div className="mt-0.5 space-y-0.5">
-                      {dayEvents.slice(0, 3).map(ev => (
-                        <div
-                          key={ev.id}
-                          className="flex items-center gap-1 px-1 py-0.5 rounded text-[10px] font-medium truncate"
-                          style={{
-                            backgroundColor: `${TYPE_COLORS[ev.type] ?? TYPE_COLORS.other}15`,
-                            color: TYPE_COLORS[ev.type] ?? TYPE_COLORS.other,
-                          }}
-                        >
-                          <span
-                            className="w-1.5 h-1.5 rounded-full shrink-0"
-                            style={{ backgroundColor: TYPE_COLORS[ev.type] ?? TYPE_COLORS.other }}
-                          />
-                          <span className="truncate hidden sm:inline">{ev.title}</span>
-                        </div>
-                      ))}
+                      {dayEvents.slice(0, 3).map(ev => {
+                        const color = getEventColor(ev, teamMap)
+                        return (
+                          <div
+                            key={ev.id}
+                            className="flex items-center gap-1 px-1 py-0.5 rounded text-[10px] font-medium truncate"
+                            style={{
+                              backgroundColor: `${color}15`,
+                              color: color,
+                            }}
+                          >
+                            <span
+                              className="w-1.5 h-1.5 rounded-full shrink-0"
+                              style={{ backgroundColor: color }}
+                            />
+                            <span className="truncate hidden sm:inline">{ev.title}</span>
+                          </div>
+                        )
+                      })}
                       {dayEvents.length > 3 && (
                         <span className="text-[10px] text-gray-400 pl-1">
                           +{dayEvents.length - 3}
@@ -285,6 +297,12 @@ export default function CalendarPage() {
                         hour: '2-digit',
                         minute: '2-digit',
                       })
+                      const color = getEventColor(ev, teamMap)
+                      const eventTeamNames = ev.teamIds
+                        .map(id => teamMap.get(id)?.name)
+                        .filter(Boolean)
+                        .join(', ')
+
                       return (
                         <div
                           key={ev.id}
@@ -293,7 +311,7 @@ export default function CalendarPage() {
                           <div className="flex items-center gap-2 mb-1">
                             <span
                               className="w-2 h-2 rounded-full shrink-0"
-                              style={{ backgroundColor: TYPE_COLORS[ev.type] ?? TYPE_COLORS.other }}
+                              style={{ backgroundColor: color }}
                             />
                             <span className="text-xs text-gray-400">
                               {TYPE_LABELS[ev.type] ?? 'Termin'}
@@ -303,6 +321,16 @@ export default function CalendarPage() {
                           <p className="text-sm font-medium text-gray-900 truncate">
                             {ev.title}
                           </p>
+                          {eventTeamNames && (
+                            <p className="text-xs text-gray-400 mt-0.5 truncate">
+                              {eventTeamNames}
+                            </p>
+                          )}
+                          {!eventTeamNames && ev.teamIds.length === 0 && (
+                            <p className="text-xs mt-0.5 truncate" style={{ color: CLUB_EVENT_COLOR }}>
+                              Vereins-Event
+                            </p>
+                          )}
                           {ev.location && (
                             <p className="text-xs text-gray-400 mt-0.5 truncate">
                               {ev.location}
@@ -333,17 +361,18 @@ export default function CalendarPage() {
         </div>
       )}
 
-      {/* Legend */}
-      <div className="flex items-center gap-4 mt-4 text-xs text-gray-500">
-        {Object.entries(TYPE_LABELS).map(([key, label]) => (
-          <div key={key} className="flex items-center gap-1.5">
-            <span
-              className="w-2.5 h-2.5 rounded-full"
-              style={{ backgroundColor: TYPE_COLORS[key] }}
-            />
-            {label}
+      {/* Legend — dynamic from actual teams */}
+      <div className="flex items-center gap-4 mt-4 text-xs text-gray-500 flex-wrap">
+        {teams.map(t => (
+          <div key={t.id} className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: t.color }} />
+            {t.name}
           </div>
         ))}
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: CLUB_EVENT_COLOR }} />
+          Vereins-Events
+        </div>
       </div>
     </div>
   )
