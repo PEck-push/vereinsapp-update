@@ -1,21 +1,15 @@
 'use client'
 
 import { useState } from 'react'
-import { submitResponse } from '@/lib/hooks/useEvents'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { submitResponse as directSubmitResponse } from '@/lib/hooks/useEvents'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Check, Loader2, MapPin, X } from 'lucide-react'
-import type { ClubEvent } from '@/lib/types'
+import type { ClubEvent, DeclineCategory } from '@/lib/types'
 import { Timestamp } from 'firebase/firestore'
 
 type Step = 'choice' | 'decline-reason' | 'confirmed'
-type DeclineCategory = 'injury' | 'work' | 'private' | 'other'
 
 const DECLINE_CATEGORIES: { value: DeclineCategory; label: string; emoji: string }[] = [
   { value: 'injury', label: 'Verletzung / Krankheit', emoji: '🤕' },
@@ -24,16 +18,12 @@ const DECLINE_CATEGORIES: { value: DeclineCategory; label: string; emoji: string
   { value: 'other', label: 'Sonstiges', emoji: '📝' },
 ]
 
-function formatEventDate(date: Date | Timestamp | unknown): string {
+function formatEventDate(date: unknown): string {
   const d = date instanceof Timestamp ? date.toDate() : date instanceof Date ? date : new Date(date as string)
-  return d.toLocaleDateString('de-AT', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  })
+  return d.toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long' })
 }
 
-function formatEventTime(date: Date | Timestamp | unknown): string {
+function formatEventTime(date: unknown): string {
   const d = date instanceof Timestamp ? date.toDate() : date instanceof Date ? date : new Date(date as string)
   return d.toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })
 }
@@ -41,9 +31,24 @@ function formatEventTime(date: Date | Timestamp | unknown): string {
 interface EventResponseDialogProps {
   open: boolean
   onClose: () => void
-  event: ClubEvent
+  event: ClubEvent | null
   playerId: string
+  /** Shown as a badge if the player already responded */
   existingResponse?: 'accepted' | 'declined' | null
+  /**
+   * Optional custom submit handler. If not provided, uses the
+   * standalone submitResponse from useEvents.
+   */
+  onSubmit?: (
+    eventId: string,
+    playerId: string,
+    response: {
+      playerId: string
+      status: 'accepted' | 'declined'
+      declineCategory?: DeclineCategory
+      reason?: string
+    }
+  ) => Promise<void>
 }
 
 export function EventResponseDialog({
@@ -52,6 +57,7 @@ export function EventResponseDialog({
   event,
   playerId,
   existingResponse,
+  onSubmit,
 }: EventResponseDialogProps) {
   const [step, setStep] = useState<Step>('choice')
   const [declineCategory, setDeclineCategory] = useState<DeclineCategory | null>(null)
@@ -67,43 +73,52 @@ export function EventResponseDialog({
     onClose()
   }
 
-  async function handleAccept() {
+  async function doSubmit(
+    status: 'accepted' | 'declined',
+    category?: DeclineCategory,
+    reasonText?: string
+  ) {
+    if (!event) return
     setSubmitting(true)
     setError(null)
     try {
-      await submitResponse(event.id, playerId, { playerId, status: 'accepted' })
+      const response = {
+        playerId,
+        status,
+        ...(category && { declineCategory: category }),
+        ...(reasonText && { reason: reasonText }),
+      }
+
+      if (onSubmit) {
+        await onSubmit(event.id, playerId, response)
+      } else {
+        await directSubmitResponse(event.id, playerId, response)
+      }
+
       setStep('confirmed')
-      setTimeout(handleClose, 1800)
+      setTimeout(handleClose, 1500)
     } catch {
       setError('Deine Antwort konnte nicht gespeichert werden.')
     } finally {
       setSubmitting(false)
     }
+  }
+
+  async function handleAccept() {
+    await doSubmit('accepted')
   }
 
   async function handleDeclineConfirm() {
     if (!declineCategory) return
-    setSubmitting(true)
-    setError(null)
-    try {
-      await submitResponse(event.id, playerId, {
-        playerId,
-        status: 'declined',
-        declineCategory,
-        reason: reason.trim() || undefined,
-      })
-      setStep('confirmed')
-      setTimeout(handleClose, 1800)
-    } catch {
-      setError('Deine Antwort konnte nicht gespeichert werden.')
-    } finally {
-      setSubmitting(false)
-    }
+    await doSubmit('declined', declineCategory, reason.trim() || undefined)
   }
+
+  if (!event) return null
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
       <DialogContent className="sm:max-w-sm">
+        {/* Header */}
         <DialogHeader>
           <DialogTitle style={{ fontFamily: 'Outfit, sans-serif', color: '#1a1a2e' }}>
             {event.title}
@@ -111,7 +126,9 @@ export function EventResponseDialog({
         </DialogHeader>
 
         <div className="flex flex-col gap-1 text-sm text-gray-500 -mt-2 mb-2">
-          <span>{formatEventDate(event.startDate)} · {formatEventTime(event.startDate)}</span>
+          <span>
+            {formatEventDate(event.startDate)} · {formatEventTime(event.startDate)} Uhr
+          </span>
           {event.location && (
             <span className="flex items-center gap-1">
               <MapPin className="w-3.5 h-3.5" />
@@ -128,6 +145,7 @@ export function EventResponseDialog({
           )}
         </div>
 
+        {/* Step 1: Accept / Decline */}
         {step === 'choice' && (
           <div className="flex gap-3">
             <button
@@ -156,6 +174,7 @@ export function EventResponseDialog({
           </div>
         )}
 
+        {/* Step 2: Decline reason */}
         {step === 'decline-reason' && (
           <div className="space-y-4">
             <p className="text-sm font-medium text-gray-700">Was ist der Grund?</p>
@@ -197,7 +216,12 @@ export function EventResponseDialog({
             )}
 
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => setStep('choice')} className="flex-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setStep('choice')}
+                className="flex-1"
+              >
                 Zurück
               </Button>
               <Button
@@ -213,6 +237,7 @@ export function EventResponseDialog({
           </div>
         )}
 
+        {/* Step 3: Confirmation */}
         {step === 'confirmed' && (
           <div className="flex flex-col items-center gap-3 py-4">
             <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">

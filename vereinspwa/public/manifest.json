@@ -6,7 +6,7 @@
   "orientation": "portrait",
   "theme_color": "#1a1a2e",
   "background_color": "#1a1a2e",
-  "start_url": "/dashboard",
+  "start_url": "/",
   "scope": "/",
   "icons": [
     {

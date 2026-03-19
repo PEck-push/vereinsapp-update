@@ -7,7 +7,7 @@ import { auth, storage } from '@/lib/firebase/client'
 import { CLUB_ID } from '@/lib/config'
 import { usePlayerProfile } from '@/lib/hooks/usePlayerProfile'
 import { useEvents } from '@/lib/hooks/useEvents'
-import { ResponseDialog } from '@/components/events/ResponseDialog'
+import { EventResponseDialog } from '@/components/events/EventResponseDialog'
 import { NotificationBanner } from '@/components/events/NotificationBanner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -92,7 +92,6 @@ function OverviewTab({ player }: { player: Player }) {
   const [myResponses, setMyResponses] = useState<Record<string, string>>({})
   const [responseEvent, setResponseEvent] = useState<ClubEvent | null>(null)
   const [showPast, setShowPast] = useState(false)
-  const { submitResponse } = useEvents()
 
   const now = new Date()
 
@@ -175,12 +174,11 @@ function OverviewTab({ player }: { player: Player }) {
         </div>
       )}
 
-      <ResponseDialog
+      <EventResponseDialog
         open={!!responseEvent}
         event={responseEvent}
         playerId={player.id}
         onClose={() => setResponseEvent(null)}
-        onSubmit={submitResponse}
       />
     </div>
   )
