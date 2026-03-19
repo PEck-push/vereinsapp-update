@@ -1,184 +1,226 @@
 'use client'
 
 import { useState } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { submitResponse } from '@/lib/hooks/useEvents'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Check, Loader2, X } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Check, Loader2, MapPin, X } from 'lucide-react'
 import type { ClubEvent } from '@/lib/types'
+import { Timestamp } from 'firebase/firestore'
 
+type Step = 'choice' | 'decline-reason' | 'confirmed'
 type DeclineCategory = 'injury' | 'work' | 'private' | 'other'
 
 const DECLINE_CATEGORIES: { value: DeclineCategory; label: string; emoji: string }[] = [
   { value: 'injury', label: 'Verletzung / Krankheit', emoji: '🤕' },
   { value: 'work', label: 'Arbeit / Schule', emoji: '💼' },
   { value: 'private', label: 'Privates', emoji: '🏠' },
-  { value: 'other', label: 'Sonstiges', emoji: '📌' },
+  { value: 'other', label: 'Sonstiges', emoji: '📝' },
 ]
 
-type Step = 'choice' | 'decline_reason' | 'submitting' | 'done'
-
-interface ResponseDialogProps {
-  open: boolean
-  event: ClubEvent | null
-  playerId: string
-  onClose: () => void
-  onSubmit: (
-    eventId: string,
-    playerId: string,
-    response: { playerId: string; status: 'accepted' | 'declined'; declineCategory?: DeclineCategory; reason?: string }
-  ) => Promise<void>
+function formatEventDate(date: Date | Timestamp | unknown): string {
+  const d = date instanceof Timestamp ? date.toDate() : date instanceof Date ? date : new Date(date as string)
+  return d.toLocaleDateString('de-AT', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  })
 }
 
-function formatEventDate(date: Date | { toDate?: () => Date }): string {
-  const d = typeof (date as { toDate?: () => Date }).toDate === 'function'
-    ? (date as { toDate: () => Date }).toDate()
-    : new Date(date as unknown as string)
-  return d.toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long' })
-}
-
-function formatEventTime(date: Date | { toDate?: () => Date }): string {
-  const d = typeof (date as { toDate?: () => Date }).toDate === 'function'
-    ? (date as { toDate: () => Date }).toDate()
-    : new Date(date as unknown as string)
+function formatEventTime(date: Date | Timestamp | unknown): string {
+  const d = date instanceof Timestamp ? date.toDate() : date instanceof Date ? date : new Date(date as string)
   return d.toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })
 }
 
-export function ResponseDialog({ open, event, playerId, onClose, onSubmit }: ResponseDialogProps) {
-  const [step, setStep] = useState<Step>('choice')
-  const [selectedCategory, setSelectedCategory] = useState<DeclineCategory | null>(null)
-  const [reason, setReason] = useState('')
+interface EventResponseDialogProps {
+  open: boolean
+  onClose: () => void
+  event: ClubEvent
+  playerId: string
+  existingResponse?: 'accepted' | 'declined' | null
+}
 
-  function reset() {
-    setStep('choice')
-    setSelectedCategory(null)
-    setReason('')
-  }
+export function EventResponseDialog({
+  open,
+  onClose,
+  event,
+  playerId,
+  existingResponse,
+}: EventResponseDialogProps) {
+  const [step, setStep] = useState<Step>('choice')
+  const [declineCategory, setDeclineCategory] = useState<DeclineCategory | null>(null)
+  const [reason, setReason] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   function handleClose() {
-    reset()
+    setStep('choice')
+    setDeclineCategory(null)
+    setReason('')
+    setError(null)
     onClose()
   }
 
   async function handleAccept() {
-    if (!event) return
-    setStep('submitting')
-    await onSubmit(event.id, playerId, { playerId, status: 'accepted' })
-    setStep('done')
-    setTimeout(handleClose, 1200)
+    setSubmitting(true)
+    setError(null)
+    try {
+      await submitResponse(event.id, playerId, { playerId, status: 'accepted' })
+      setStep('confirmed')
+      setTimeout(handleClose, 1800)
+    } catch {
+      setError('Deine Antwort konnte nicht gespeichert werden.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  async function handleDeclineSubmit() {
-    if (!event || !selectedCategory) return
-    setStep('submitting')
-    await onSubmit(event.id, playerId, {
-      playerId,
-      status: 'declined',
-      declineCategory: selectedCategory,
-      reason: reason.trim() || undefined,
-    })
-    setStep('done')
-    setTimeout(handleClose, 1200)
+  async function handleDeclineConfirm() {
+    if (!declineCategory) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      await submitResponse(event.id, playerId, {
+        playerId,
+        status: 'declined',
+        declineCategory,
+        reason: reason.trim() || undefined,
+      })
+      setStep('confirmed')
+      setTimeout(handleClose, 1800)
+    } catch {
+      setError('Deine Antwort konnte nicht gespeichert werden.')
+    } finally {
+      setSubmitting(false)
+    }
   }
-
-  if (!event) return null
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
       <DialogContent className="sm:max-w-sm">
-        {/* Event Info */}
         <DialogHeader>
           <DialogTitle style={{ fontFamily: 'Outfit, sans-serif', color: '#1a1a2e' }}>
             {event.title}
           </DialogTitle>
-          <div className="text-sm text-gray-500 space-y-0.5 mt-1">
-            <p>{formatEventDate(event.startDate as unknown as Date)}</p>
-            <p>{formatEventTime(event.startDate as unknown as Date)} Uhr{event.location && ` · ${event.location}`}</p>
-          </div>
         </DialogHeader>
 
-        {/* Step: Choice */}
+        <div className="flex flex-col gap-1 text-sm text-gray-500 -mt-2 mb-2">
+          <span>{formatEventDate(event.startDate)} · {formatEventTime(event.startDate)}</span>
+          {event.location && (
+            <span className="flex items-center gap-1">
+              <MapPin className="w-3.5 h-3.5" />
+              {event.location}
+            </span>
+          )}
+          {existingResponse && (
+            <Badge
+              variant={existingResponse === 'accepted' ? 'success' : 'muted'}
+              className="self-start mt-1"
+            >
+              Bisher: {existingResponse === 'accepted' ? 'Zugesagt' : 'Abgesagt'}
+            </Badge>
+          )}
+        </div>
+
         {step === 'choice' && (
-          <div className="flex gap-3 mt-2">
+          <div className="flex gap-3">
             <button
               onClick={handleAccept}
-              className="flex-1 flex flex-col items-center gap-2 p-4 rounded-lg border-2 border-green-200 bg-green-50 hover:bg-green-100 hover:border-green-400 transition-colors"
+              disabled={submitting}
+              className="flex-1 flex flex-col items-center gap-2 py-5 rounded-lg border-2 border-green-200 bg-green-50 hover:bg-green-100 text-green-800 font-semibold transition-colors disabled:opacity-50"
+              style={{ borderRadius: '8px' }}
             >
-              <span className="text-2xl">✓</span>
-              <span className="text-sm font-semibold text-green-800">Ich bin dabei</span>
+              {submitting ? (
+                <Loader2 className="w-6 h-6 animate-spin" />
+              ) : (
+                <Check className="w-6 h-6" />
+              )}
+              <span className="text-sm">Ich bin dabei</span>
             </button>
+
             <button
-              onClick={() => setStep('decline_reason')}
-              className="flex-1 flex flex-col items-center gap-2 p-4 rounded-lg border-2 border-red-200 bg-red-50 hover:bg-red-100 hover:border-red-400 transition-colors"
+              onClick={() => setStep('decline-reason')}
+              disabled={submitting}
+              className="flex-1 flex flex-col items-center gap-2 py-5 rounded-lg border-2 border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-semibold transition-colors disabled:opacity-50"
+              style={{ borderRadius: '8px' }}
             >
-              <span className="text-2xl">✗</span>
-              <span className="text-sm font-semibold text-red-800">Ich kann nicht</span>
+              <X className="w-6 h-6" />
+              <span className="text-sm">Ich kann nicht</span>
             </button>
           </div>
         )}
 
-        {/* Step: Decline Reason */}
-        {step === 'decline_reason' && (
-          <div className="space-y-4 mt-2">
+        {step === 'decline-reason' && (
+          <div className="space-y-4">
             <p className="text-sm font-medium text-gray-700">Was ist der Grund?</p>
+
             <div className="grid grid-cols-2 gap-2">
               {DECLINE_CATEGORIES.map((cat) => (
                 <button
                   key={cat.value}
-                  onClick={() => setSelectedCategory(cat.value)}
+                  onClick={() => setDeclineCategory(cat.value)}
                   className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 text-sm font-medium transition-colors ${
-                    selectedCategory === cat.value
+                    declineCategory === cat.value
                       ? 'border-[#e94560] bg-red-50 text-[#e94560]'
                       : 'border-gray-200 hover:border-gray-300 text-gray-700'
                   }`}
+                  style={{ borderRadius: '8px' }}
                 >
                   <span className="text-xl">{cat.emoji}</span>
-                  <span className="text-center leading-tight">{cat.label}</span>
+                  <span className="text-center leading-tight text-xs">{cat.label}</span>
                 </button>
               ))}
             </div>
 
             <div className="space-y-1.5">
               <label className="text-xs text-gray-500">
-                Möchtest du noch etwas hinzufügen? <span className="text-gray-400">(optional)</span>
+                Möchtest du noch etwas hinzufügen? (optional)
               </label>
               <textarea
                 value={reason}
                 onChange={(e) => setReason(e.target.value.slice(0, 200))}
-                placeholder="Freitext..."
+                placeholder="z.B. Bin beim Arzt..."
                 rows={2}
-                className="w-full rounded-md border border-input px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
               <p className="text-xs text-gray-400 text-right">{reason.length}/200</p>
             </div>
 
+            {error && (
+              <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>
+            )}
+
             <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => setStep('choice')}>
+              <Button variant="outline" size="sm" onClick={() => setStep('choice')} className="flex-1">
                 Zurück
               </Button>
               <Button
+                size="sm"
+                onClick={handleDeclineConfirm}
+                disabled={!declineCategory || submitting}
                 className="flex-1"
-                disabled={!selectedCategory}
-                onClick={handleDeclineSubmit}
                 style={{ backgroundColor: '#e94560' }}
               >
-                Bestätigen
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Bestätigen'}
               </Button>
             </div>
           </div>
         )}
 
-        {/* Step: Submitting */}
-        {step === 'submitting' && (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-          </div>
-        )}
-
-        {/* Step: Done */}
-        {step === 'done' && (
-          <div className="flex flex-col items-center gap-2 py-6">
-            <Check className="w-10 h-10 text-green-500" />
-            <p className="text-sm font-medium text-gray-700">Deine Antwort wurde gespeichert</p>
+        {step === 'confirmed' && (
+          <div className="flex flex-col items-center gap-3 py-4">
+            <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
+              <Check className="w-6 h-6 text-green-600" />
+            </div>
+            <p className="text-sm font-medium text-gray-800">
+              Deine Antwort wurde gespeichert.
+            </p>
           </div>
         )}
       </DialogContent>
