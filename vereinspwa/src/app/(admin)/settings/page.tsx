@@ -3,8 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
-import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
-import { auth, db, storage } from '@/lib/firebase/client'
+import { auth, db } from '@/lib/firebase/client'
 import { CLUB_ID } from '@/lib/config'
 import { useTeams } from '@/lib/hooks/useTeams'
 import { Button } from '@/components/ui/button'
@@ -21,7 +20,6 @@ export default function SettingsPage() {
       <h1 className="text-2xl font-semibold text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>
         Einstellungen
       </h1>
-
       <SettingsNav />
       <ClubProfileSection />
       <Separator />
@@ -36,48 +34,59 @@ export default function SettingsPage() {
 
 function SettingsNav() {
   const { teams } = useTeams()
-
   const links = [
-    {
-      href: '/settings/teams',
-      label: 'Mannschaften verwalten',
-      description: `${teams.length} ${teams.length === 1 ? 'Mannschaft' : 'Mannschaften'} angelegt`,
-      icon: Users,
-      color: 'var(--club-primary, #1a1a2e)',
-    },
-    {
-      href: '/settings/users',
-      label: 'Benutzer & Rollen',
-      description: 'Admins, Trainer, Funktionäre',
-      icon: Shield,
-      color: '#8B5CF6',
-    },
+    { href: '/settings/teams', label: 'Mannschaften verwalten', description: `${teams.length} ${teams.length === 1 ? 'Mannschaft' : 'Mannschaften'} angelegt`, icon: Users, color: 'var(--club-primary, #1a1a2e)' },
+    { href: '/settings/users', label: 'Benutzer & Rollen', description: 'Admins, Trainer, Funktionäre', icon: Shield, color: '#8B5CF6' },
   ]
-
   return (
     <div className="space-y-2">
       {links.map(({ href, label, description, icon: Icon, color }) => (
-        <Link
-          key={href}
-          href={href}
-          className="flex items-center gap-4 p-4 bg-white rounded-lg border hover:shadow-sm transition-shadow group"
-          style={{ borderRadius: '8px' }}
-        >
-          <div
-            className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-            style={{ backgroundColor: color }}
-          >
-            <Icon className="w-5 h-5 text-white" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-gray-900">{label}</p>
-            <p className="text-xs text-gray-400">{description}</p>
-          </div>
+        <Link key={href} href={href} className="flex items-center gap-4 p-4 bg-white rounded-lg border hover:shadow-sm transition-shadow group" style={{ borderRadius: '8px' }}>
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: color }}><Icon className="w-5 h-5 text-white" /></div>
+          <div className="flex-1 min-w-0"><p className="text-sm font-semibold text-gray-900">{label}</p><p className="text-xs text-gray-400">{description}</p></div>
           <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors" />
         </Link>
       ))}
     </div>
   )
+}
+
+/**
+ * Converts a File to a base64 data URL.
+ * Resizes to max 256x256 to keep Firestore doc size small.
+ */
+async function fileToBase64(file: File, maxSize = 256): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const reader = new FileReader()
+
+    reader.onload = () => {
+      img.onload = () => {
+        // Calculate resize dimensions (maintain aspect ratio, fit in maxSize square)
+        let w = img.width
+        let h = img.height
+        if (w > maxSize || h > maxSize) {
+          if (w > h) { h = Math.round(h * (maxSize / w)); w = maxSize }
+          else { w = Math.round(w * (maxSize / h)); h = maxSize }
+        }
+
+        // Draw to canvas
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        const ctx = canvas.getContext('2d')
+        if (!ctx) { reject(new Error('Canvas not supported')); return }
+        ctx.drawImage(img, 0, 0, w, h)
+
+        // Export as JPEG (smaller than PNG for photos)
+        resolve(canvas.toDataURL('image/jpeg', 0.85))
+      }
+      img.onerror = () => reject(new Error('Bild konnte nicht geladen werden'))
+      img.src = reader.result as string
+    }
+    reader.onerror = () => reject(new Error('Datei konnte nicht gelesen werden'))
+    reader.readAsDataURL(file)
+  })
 }
 
 function ClubProfileSection() {
@@ -119,18 +128,40 @@ function ClubProfileSection() {
   async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    if (!['image/png', 'image/jpeg'].includes(file.type)) { toast.error('Nur PNG oder JPG erlaubt'); return }
-    if (file.size > 2 * 1024 * 1024) { toast.error('Maximale Dateigröße: 2 MB'); return }
-    if (!storage || !db) return
+    if (!file.type.startsWith('image/')) { toast.error('Nur Bilddateien erlaubt'); return }
+    if (file.size > 5 * 1024 * 1024) { toast.error('Maximale Dateigröße: 5 MB'); return }
+    if (!db) return
+
     setUploading(true)
     try {
-      const sRef = storageRef(storage, `clubs/${CLUB_ID}/logo`)
-      await uploadBytes(sRef, file)
-      const url = await getDownloadURL(sRef)
-      await setDoc(doc(db, 'clubs', CLUB_ID), { logoUrl: url }, { merge: true })
-      setLogoUrl(url)
+      // Convert to base64, resize to 256x256 max
+      const base64 = await fileToBase64(file, 256)
+
+      // Check resulting size (Firestore limit per field is ~1MB, base64 of 256x256 JPEG is ~20-50KB)
+      if (base64.length > 500000) {
+        toast.error('Bild ist zu groß. Bitte ein kleineres Bild verwenden.')
+        return
+      }
+
+      // Store directly in Firestore — no Firebase Storage needed
+      await setDoc(doc(db, 'clubs', CLUB_ID), { logoUrl: base64 }, { merge: true })
+      setLogoUrl(base64)
       toast.success('Logo gespeichert')
-    } catch { toast.error('Upload fehlgeschlagen') } finally { setUploading(false) }
+    } catch (err) {
+      console.error('[Logo Upload]', err)
+      toast.error('Logo konnte nicht gespeichert werden')
+    } finally {
+      setUploading(false)
+      // Reset file input so same file can be selected again
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  function handleRemoveLogo() {
+    if (!db) return
+    setDoc(doc(db, 'clubs', CLUB_ID), { logoUrl: '' }, { merge: true })
+    setLogoUrl(null)
+    toast.info('Logo entfernt')
   }
 
   if (!loaded) return null
@@ -138,23 +169,43 @@ function ClubProfileSection() {
   return (
     <section className="space-y-4">
       <h2 className="text-base font-semibold text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>Vereinsprofil</h2>
+
+      {/* Logo */}
       <div className="flex items-center gap-4">
-        <div className="w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center text-white font-bold text-xl" style={{ backgroundColor: primaryColor }}>
-          {logoUrl ? <img src={logoUrl} alt="Logo" className="w-full h-full object-contain" /> : 'V'}
+        <div
+          className="w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center text-white font-bold text-xl shrink-0"
+          style={{ backgroundColor: primaryColor }}
+        >
+          {logoUrl ? (
+            <img src={logoUrl} alt="Logo" className="w-full h-full object-cover" />
+          ) : (
+            clubName.charAt(0).toUpperCase() || 'V'
+          )}
         </div>
         <div>
-          <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
-            {uploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Camera className="w-4 h-4 mr-2" />}
-            Logo hochladen
-          </Button>
-          <p className="text-xs text-gray-400 mt-1">PNG oder JPG, max. 2 MB</p>
-          <input ref={fileRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={handleLogoUpload} />
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
+              {uploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Camera className="w-4 h-4 mr-2" />}
+              {logoUrl ? 'Logo ändern' : 'Logo hochladen'}
+            </Button>
+            {logoUrl && (
+              <Button variant="ghost" size="sm" onClick={handleRemoveLogo} className="text-red-500 hover:text-red-700 text-xs">
+                Entfernen
+              </Button>
+            )}
+          </div>
+          <p className="text-xs text-gray-400 mt-1">PNG, JPG oder SVG. Wird automatisch auf 256×256 verkleinert.</p>
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
         </div>
       </div>
+
+      {/* Club name */}
       <div className="space-y-1.5">
         <Label htmlFor="clubName">Vereinsname</Label>
-        <Input id="clubName" value={clubName} onChange={e => setClubName(e.target.value)} placeholder="z.B. SC Rapid Wien" />
+        <Input id="clubName" value={clubName} onChange={e => setClubName(e.target.value)} placeholder="z.B. ASV Pöttsching" />
       </div>
+
+      {/* Primary color */}
       <div className="space-y-1.5">
         <Label>Primärfarbe</Label>
         <div className="flex items-center gap-3">
@@ -163,6 +214,8 @@ function ClubProfileSection() {
           <span className="text-xs text-gray-400">Sidebar, Header</span>
         </div>
       </div>
+
+      {/* Secondary color */}
       <div className="space-y-1.5">
         <Label>Sekundärfarbe</Label>
         <div className="flex items-center gap-3">
@@ -171,6 +224,8 @@ function ClubProfileSection() {
           <span className="text-xs text-gray-400">Buttons, Akzente</span>
         </div>
       </div>
+
+      {/* Preview */}
       <div className="p-4 rounded-lg border space-y-3" style={{ borderRadius: '8px' }}>
         <p className="text-xs text-gray-400 font-medium">Vorschau</p>
         <div className="flex items-center gap-3">
@@ -182,6 +237,7 @@ function ClubProfileSection() {
           </div>
         </div>
       </div>
+
       <Button onClick={handleSave} disabled={saving} variant="club">
         {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
         Speichern
