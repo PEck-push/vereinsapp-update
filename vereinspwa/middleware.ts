@@ -22,7 +22,19 @@ function classifyRoute(pathname: string): RouteType {
   return 'unknown'
 }
 
-const ADMIN_ROLES = new Set(['admin', 'trainer', 'secretary'])
+/**
+ * Roles with admin panel access:
+ * - admin: full access
+ * - secretary: full access
+ * - funktionaer: can see everything + create events, but not manage settings/users
+ * - trainer: team-scoped access (enforced at component level, not middleware)
+ */
+const ADMIN_ROLES = new Set(['admin', 'trainer', 'secretary', 'funktionaer'])
+
+/**
+ * Settings management restricted to these roles
+ */
+const SETTINGS_ROLES = new Set(['admin', 'secretary'])
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -40,11 +52,19 @@ export async function middleware(request: NextRequest) {
     const role = decoded.role as string | undefined
 
     if (routeType === 'admin') {
+      // Players go to their own area
       if (role === 'player') {
         return NextResponse.redirect(new URL('/mein-bereich', request.url))
       }
+
+      // Must have an admin-level role
       if (role && !ADMIN_ROLES.has(role)) {
         return redirectToLogin(request)
+      }
+
+      // Settings/Users page restricted to admin + secretary
+      if (pathname.startsWith('/settings/users') && role && !SETTINGS_ROLES.has(role)) {
+        return NextResponse.redirect(new URL('/dashboard', request.url))
       }
     }
 
