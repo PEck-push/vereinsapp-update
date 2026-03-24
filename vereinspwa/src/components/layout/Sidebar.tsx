@@ -12,15 +12,29 @@ import {
   Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useAdminProfile, type AdminRole } from '@/lib/hooks/useAdminProfile'
 
-const NAV_ITEMS = [
+interface NavItem {
+  label: string
+  href: string
+  icon: React.ElementType
+  /** Which roles can see this item. If empty/undefined → visible to all admin roles */
+  roles?: AdminRole[]
+}
+
+const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Kalender', href: '/calendar', icon: Calendar },
   { label: 'Spieler', href: '/players', icon: Users },
   { label: 'Termine', href: '/events', icon: ClipboardList },
   { label: 'Statistiken', href: '/stats', icon: BarChart2 },
   { label: 'Nachrichten', href: '/messages', icon: Bell },
-  { label: 'Einstellungen', href: '/settings', icon: Settings },
+  {
+    label: 'Einstellungen',
+    href: '/settings',
+    icon: Settings,
+    roles: ['admin', 'secretary'],
+  },
 ]
 
 interface SidebarProps {
@@ -30,6 +44,14 @@ interface SidebarProps {
 
 export function Sidebar({ clubName = 'Vereinsname', logoUrl }: SidebarProps) {
   const pathname = usePathname()
+  const { profile } = useAdminProfile()
+  const role = profile?.role ?? 'admin'
+
+  // Filter nav items by role
+  const visibleItems = NAV_ITEMS.filter(item => {
+    if (!item.roles) return true
+    return item.roles.includes(role)
+  })
 
   return (
     <aside
@@ -58,21 +80,33 @@ export function Sidebar({ clubName = 'Vereinsname', logoUrl }: SidebarProps) {
               </span>
             )}
           </div>
-          <span
-            className="font-semibold text-sm truncate"
-            style={{
-              fontFamily: 'Outfit, sans-serif',
-              color: 'var(--club-primary-text, #ffffff)',
-            }}
-          >
-            {clubName}
-          </span>
+          <div className="flex-1 min-w-0">
+            <span
+              className="font-semibold text-sm truncate block"
+              style={{
+                fontFamily: 'Outfit, sans-serif',
+                color: 'var(--club-primary-text, #ffffff)',
+              }}
+            >
+              {clubName}
+            </span>
+            {role !== 'admin' && (
+              <span
+                className="text-[10px] block truncate"
+                style={{ color: 'color-mix(in srgb, var(--club-primary-text, #ffffff) 50%, transparent)' }}
+              >
+                {role === 'trainer' ? 'Trainer' :
+                 role === 'funktionaer' ? 'Funktionär' :
+                 role === 'secretary' ? 'Sekretär' : ''}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-0.5">
-        {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
+        {visibleItems.map(({ label, href, icon: Icon }) => {
           const isActive = pathname === href || pathname.startsWith(href + '/')
           return (
             <Link
@@ -80,9 +114,7 @@ export function Sidebar({ clubName = 'Vereinsname', logoUrl }: SidebarProps) {
               href={href}
               className={cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors',
-                isActive
-                  ? ''
-                  : 'hover:bg-white/5'
+                isActive ? '' : 'hover:bg-white/5'
               )}
               style={
                 isActive

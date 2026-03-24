@@ -6,10 +6,13 @@ import { doc, getDoc } from 'firebase/firestore'
 import { auth, db } from '@/lib/firebase/client'
 import { CLUB_ID } from '@/lib/config'
 
+export type AdminRole = 'admin' | 'funktionaer' | 'trainer' | 'secretary'
+
 interface AdminProfile {
   uid: string
-  role: 'admin' | 'trainer' | 'secretary'
+  role: AdminRole
   teamIds: string[]
+  displayName?: string
 }
 
 type AdminProfileState =
@@ -20,11 +23,11 @@ type AdminProfileState =
 /**
  * Reads the current user's admin profile from Firestore.
  *
- * - role 'admin' → sees all teams (teamIds ignored, returns empty array as signal)
- * - role 'trainer' → sees only their assigned teamIds
- * - role 'secretary' → sees all teams
- *
- * Use `isAllTeams` to check if filtering should be skipped.
+ * Role permissions:
+ * - admin → sees all teams, full access
+ * - secretary → sees all teams, full access
+ * - funktionaer → sees all teams, can create events, no settings/user management
+ * - trainer → sees only assigned teamIds
  */
 export function useAdminProfile() {
   const [state, setState] = useState<AdminProfileState>({ status: 'loading' })
@@ -47,15 +50,13 @@ export function useAdminProfile() {
         )
 
         if (!adminDoc.exists()) {
-          // Might be a player, not an admin — or doc structure differs
-          // Fallback: try reading custom claims
           const tokenResult = await user.getIdTokenResult()
           const role = (tokenResult.claims.role as string) ?? 'admin'
           setState({
             status: 'ok',
             profile: {
               uid: user.uid,
-              role: role as AdminProfile['role'],
+              role: role as AdminRole,
               teamIds: [],
             },
           })
@@ -67,8 +68,9 @@ export function useAdminProfile() {
           status: 'ok',
           profile: {
             uid: user.uid,
-            role: data.role ?? 'admin',
+            role: (data.role ?? 'admin') as AdminRole,
             teamIds: data.teamIds ?? [],
+            displayName: data.displayName,
           },
         })
       } catch (err) {
@@ -81,7 +83,23 @@ export function useAdminProfile() {
   }, [])
 
   const profile = state.status === 'ok' ? state.profile : null
-  const isAllTeams = profile?.role === 'admin' || profile?.role === 'secretary' || (profile?.teamIds.length === 0)
 
-  return { state, profile, isAllTeams }
+  // These roles see all teams (not team-scoped)
+  const isAllTeams =
+    profile?.role === 'admin' ||
+    profile?.role === 'secretary' ||
+    profile?.role === 'funktionaer' ||
+    (profile?.teamIds.length === 0)
+
+  // Can manage settings and users
+  const canManageSettings = profile?.role === 'admin' || profile?.role === 'secretary'
+
+  // Can create/edit events
+  const canManageEvents =
+    profile?.role === 'admin' ||
+    profile?.role === 'secretary' ||
+    profile?.role === 'funktionaer' ||
+    profile?.role === 'trainer'
+
+  return { state, profile, isAllTeams, canManageSettings, canManageEvents }
 }

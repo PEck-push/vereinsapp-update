@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { toast } from '@/components/ui/toaster'
-import { Camera, Check, ChevronRight, ClipboardCopy, Loader2, Users } from 'lucide-react'
+import { Camera, Check, ChevronRight, ClipboardCopy, Loader2, Shield, Users } from 'lucide-react'
 import Link from 'next/link'
 
 export default function SettingsPage() {
@@ -36,25 +36,46 @@ export default function SettingsPage() {
 
 function SettingsNav() {
   const { teams } = useTeams()
+
+  const links = [
+    {
+      href: '/settings/teams',
+      label: 'Mannschaften verwalten',
+      description: `${teams.length} ${teams.length === 1 ? 'Mannschaft' : 'Mannschaften'} angelegt`,
+      icon: Users,
+      color: 'var(--club-primary, #1a1a2e)',
+    },
+    {
+      href: '/settings/users',
+      label: 'Benutzer & Rollen',
+      description: 'Admins, Trainer, Funktionäre',
+      icon: Shield,
+      color: '#8B5CF6',
+    },
+  ]
+
   return (
     <div className="space-y-2">
-      <Link
-        href="/settings/teams"
-        className="flex items-center gap-4 p-4 bg-white rounded-lg border hover:shadow-sm transition-shadow group"
-        style={{ borderRadius: '8px' }}
-      >
-        <div
-          className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-          style={{ backgroundColor: 'var(--club-primary, #1a1a2e)' }}
+      {links.map(({ href, label, description, icon: Icon, color }) => (
+        <Link
+          key={href}
+          href={href}
+          className="flex items-center gap-4 p-4 bg-white rounded-lg border hover:shadow-sm transition-shadow group"
+          style={{ borderRadius: '8px' }}
         >
-          <Users className="w-5 h-5" style={{ color: 'var(--club-primary-text, #ffffff)' }} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-gray-900">Mannschaften verwalten</p>
-          <p className="text-xs text-gray-400">{teams.length} {teams.length === 1 ? 'Mannschaft' : 'Mannschaften'} angelegt</p>
-        </div>
-        <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors" />
-      </Link>
+          <div
+            className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+            style={{ backgroundColor: color }}
+          >
+            <Icon className="w-5 h-5 text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-900">{label}</p>
+            <p className="text-xs text-gray-400">{description}</p>
+          </div>
+          <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors" />
+        </Link>
+      ))}
     </div>
   )
 }
@@ -69,7 +90,6 @@ function ClubProfileSection() {
   const [loaded, setLoaded] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Load existing values on mount
   useEffect(() => {
     if (!db) return
     async function load() {
@@ -91,12 +111,7 @@ function ClubProfileSection() {
     if (!db) return
     setSaving(true)
     try {
-      await setDoc(doc(db, 'clubs', CLUB_ID), {
-        name: clubName,
-        primaryColor,
-        secondaryColor,
-      }, { merge: true })
-      // CSS variables update automatically via ClubThemeProvider
+      await setDoc(doc(db, 'clubs', CLUB_ID), { name: clubName, primaryColor, secondaryColor }, { merge: true })
       toast.success('Vereinsprofil gespeichert')
     } catch { toast.error('Speichern fehlgeschlagen') } finally { setSaving(false) }
   }
@@ -123,13 +138,8 @@ function ClubProfileSection() {
   return (
     <section className="space-y-4">
       <h2 className="text-base font-semibold text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>Vereinsprofil</h2>
-
-      {/* Logo */}
       <div className="flex items-center gap-4">
-        <div
-          className="w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center text-white font-bold text-xl"
-          style={{ backgroundColor: primaryColor }}
-        >
+        <div className="w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center text-white font-bold text-xl" style={{ backgroundColor: primaryColor }}>
           {logoUrl ? <img src={logoUrl} alt="Logo" className="w-full h-full object-contain" /> : 'V'}
         </div>
         <div>
@@ -141,49 +151,38 @@ function ClubProfileSection() {
           <input ref={fileRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={handleLogoUpload} />
         </div>
       </div>
-
-      {/* Club name */}
       <div className="space-y-1.5">
         <Label htmlFor="clubName">Vereinsname</Label>
         <Input id="clubName" value={clubName} onChange={e => setClubName(e.target.value)} placeholder="z.B. SC Rapid Wien" />
       </div>
-
-      {/* Primary color */}
       <div className="space-y-1.5">
         <Label>Primärfarbe</Label>
         <div className="flex items-center gap-3">
           <Input type="color" value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} className="w-12 h-10 p-1 cursor-pointer" />
-          <Input value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} className="w-28 font-mono text-sm" placeholder="#1a1a2e" />
-          <span className="text-xs text-gray-400">Sidebar, Header, Hintergründe</span>
+          <Input value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} className="w-28 font-mono text-sm" />
+          <span className="text-xs text-gray-400">Sidebar, Header</span>
         </div>
       </div>
-
-      {/* Secondary color */}
       <div className="space-y-1.5">
         <Label>Sekundärfarbe</Label>
         <div className="flex items-center gap-3">
           <Input type="color" value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)} className="w-12 h-10 p-1 cursor-pointer" />
-          <Input value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)} className="w-28 font-mono text-sm" placeholder="#e94560" />
-          <span className="text-xs text-gray-400">Buttons, aktive Links, Akzente</span>
+          <Input value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)} className="w-28 font-mono text-sm" />
+          <span className="text-xs text-gray-400">Buttons, Akzente</span>
         </div>
       </div>
-
-      {/* Preview */}
       <div className="p-4 rounded-lg border space-y-3" style={{ borderRadius: '8px' }}>
         <p className="text-xs text-gray-400 font-medium">Vorschau</p>
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg" style={{ backgroundColor: primaryColor }} />
           <div className="w-10 h-10 rounded-lg" style={{ backgroundColor: secondaryColor }} />
-          <div className="flex-1">
-            <div className="flex gap-2">
-              <span className="px-3 py-1 rounded-md text-xs font-medium text-white" style={{ backgroundColor: primaryColor }}>Primär</span>
-              <span className="px-3 py-1 rounded-md text-xs font-medium text-white" style={{ backgroundColor: secondaryColor }}>Sekundär</span>
-            </div>
+          <div className="flex gap-2">
+            <span className="px-3 py-1 rounded-md text-xs font-medium text-white" style={{ backgroundColor: primaryColor }}>Primär</span>
+            <span className="px-3 py-1 rounded-md text-xs font-medium text-white" style={{ backgroundColor: secondaryColor }}>Sekundär</span>
           </div>
         </div>
       </div>
-
-      <Button onClick={handleSave} disabled={saving} className="btn-club-secondary">
+      <Button onClick={handleSave} disabled={saving} variant="club">
         {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
         Speichern
       </Button>
@@ -206,18 +205,15 @@ function AdminProfileSection() {
     if (!user?.email) return
     setPwLoading(true); setPwError(null)
     try {
-      const cred = EmailAuthProvider.credential(user.email, currentPw)
-      await reauthenticateWithCredential(user, cred)
+      await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPw))
       await updatePassword(user, newPw)
-      setPwSuccess(true)
-      setCurrentPw(''); setNewPw(''); setConfirmPw('')
+      setPwSuccess(true); setCurrentPw(''); setNewPw(''); setConfirmPw('')
       setTimeout(() => setPwSuccess(false), 3000)
       toast.success('Passwort geändert')
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code
-      if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
-        setPwError('Aktuelles Passwort ist falsch.')
-      } else { setPwError('Passwort konnte nicht geändert werden.') }
+      if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') setPwError('Aktuelles Passwort ist falsch.')
+      else setPwError('Passwort konnte nicht geändert werden.')
     } finally { setPwLoading(false) }
   }
 
@@ -227,7 +223,6 @@ function AdminProfileSection() {
       <div className="space-y-1.5">
         <Label>E-Mail</Label>
         <Input value={user?.email ?? ''} readOnly className="bg-gray-50 text-gray-500" />
-        <p className="text-xs text-gray-400">E-Mail kann nicht geändert werden.</p>
       </div>
       <div className="space-y-3">
         <p className="text-sm font-medium text-gray-700">Passwort ändern</p>
@@ -249,19 +244,13 @@ function CalendarSubscriptionsSection() {
   const { teams } = useTeams()
   const [copied, setCopied] = useState<string | null>(null)
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
-
-  function copy(url: string, key: string) {
-    navigator.clipboard.writeText(url)
-    setCopied(key)
-    setTimeout(() => setCopied(null), 2000)
-    toast.info('Link kopiert')
-  }
+  function copy(url: string, key: string) { navigator.clipboard.writeText(url); setCopied(key); setTimeout(() => setCopied(null), 2000); toast.info('Link kopiert') }
 
   return (
     <section className="space-y-4">
       <div>
         <h2 className="text-base font-semibold text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>Kalender-Abos</h2>
-        <p className="text-xs text-gray-400 mt-0.5">iCal Links für externe Kalender (Google, Apple, Outlook)</p>
+        <p className="text-xs text-gray-400 mt-0.5">iCal Links für externe Kalender</p>
       </div>
       <div className="space-y-2">
         <CalendarLinkRow label="Alle Termine" url={`${appUrl}/api/ical?clubId=${CLUB_ID}`} copied={copied === 'all'} onCopy={() => copy(`${appUrl}/api/ical?clubId=${CLUB_ID}`, 'all')} />
@@ -279,7 +268,7 @@ function CalendarLinkRow({ label, url, copied, onCopy, color }: { label: string;
       {color && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />}
       <span className="text-sm font-medium text-gray-700 flex-1">{label}</span>
       <code className="text-xs text-gray-400 hidden md:block truncate max-w-[200px]">{url}</code>
-      <button onClick={onCopy} className="text-gray-400 hover:text-gray-700 shrink-0 p-1" title="Link kopieren">
+      <button onClick={onCopy} className="text-gray-400 hover:text-gray-700 shrink-0 p-1">
         {copied ? <Check className="w-4 h-4 text-green-500" /> : <ClipboardCopy className="w-4 h-4" />}
       </button>
     </div>
@@ -290,21 +279,17 @@ function SeasonSection() {
   const MONTHS = ['Jänner','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember']
   const [startMonth, setStartMonth] = useState(6)
   const [saving, setSaving] = useState(false)
-
   async function handleSave() {
-    if (!db) return
-    setSaving(true)
-    try {
-      await setDoc(doc(db, 'clubs', CLUB_ID), { settings: { seasonStartMonth: startMonth } }, { merge: true })
-      toast.success('Saison-Einstellung gespeichert')
-    } catch { toast.error('Speichern fehlgeschlagen') } finally { setSaving(false) }
+    if (!db) return; setSaving(true)
+    try { await setDoc(doc(db, 'clubs', CLUB_ID), { settings: { seasonStartMonth: startMonth } }, { merge: true }); toast.success('Saison-Einstellung gespeichert') }
+    catch { toast.error('Speichern fehlgeschlagen') } finally { setSaving(false) }
   }
 
   return (
     <section className="space-y-4">
       <div>
         <h2 className="text-base font-semibold text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>Saison</h2>
-        <p className="text-xs text-gray-400 mt-0.5">Wird für den „Diese Saison" Filter in Statistiken verwendet.</p>
+        <p className="text-xs text-gray-400 mt-0.5">Für Statistik-Filter</p>
       </div>
       <div className="space-y-1.5">
         <Label>Saison-Start Monat</Label>
