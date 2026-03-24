@@ -1,57 +1,46 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import { useEvents } from '@/lib/hooks/useEvents'
+import { useMemo, useEffect, useState } from 'react'
+import Link from 'next/link'
+import { usePlayers } from '@/lib/hooks/usePlayers'
 import { useTeams } from '@/lib/hooks/useTeams'
-import { EventSheet } from '@/components/events/EventSheet'
+import { useEvents, useEventResponses } from '@/lib/hooks/useEvents'
+import { useAdminProfile } from '@/lib/hooks/useAdminProfile'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
+  AlertCircle,
+  ArrowDownRight,
+  ArrowUpRight,
+  Bell,
   CalendarDays,
-  ChevronLeft,
-  ChevronRight,
-  LayoutList,
-  Grid3X3,
+  Crown,
   Loader2,
   MapPin,
-  Plus,
+  ShieldAlert,
+  TrendingUp,
+  Trophy,
+  UserCheck,
   Users,
 } from 'lucide-react'
-import { Timestamp } from 'firebase/firestore'
-import type { ClubEvent, Team } from '@/lib/types'
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+  orderBy,
+  Timestamp,
+} from 'firebase/firestore'
+import { db } from '@/lib/firebase/client'
+import { CLUB_ID } from '@/lib/config'
+import type { ClubEvent, Player, Team } from '@/lib/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const WEEKDAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
-const MONTHS = [
-  'Jänner', 'Februar', 'März', 'April', 'Mai', 'Juni',
-  'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
-]
-const TYPE_LABELS: Record<string, string> = {
-  training: 'Training',
-  match: 'Spiel',
-  meeting: 'Besprechung',
-  other: 'Termin',
-}
-const CLUB_EVENT_COLOR = '#F59E0B'
 
 function toDate(d: unknown): Date {
   if (d instanceof Timestamp) return d.toDate()
   if (d instanceof Date) return d
   return new Date(d as string)
-}
-
-function isSameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
 }
 
 function getMonday(d: Date): Date {
@@ -63,608 +52,518 @@ function getMonday(d: Date): Date {
   return date
 }
 
-function getEventColor(event: ClubEvent, teamMap: Map<string, Team>): string {
-  if (event.teamIds.length === 0) return CLUB_EVENT_COLOR
-  return teamMap.get(event.teamIds[0])?.color ?? CLUB_EVENT_COLOR
+function isSameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
 }
 
-function getEventTeamNames(event: ClubEvent, teamMap: Map<string, Team>): string {
-  if (event.teamIds.length === 0) return 'Vereins-Event'
-  return event.teamIds.map(id => teamMap.get(id)?.name).filter(Boolean).join(', ')
+const WEEKDAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+
+/**
+ * Austrian football seasons:
+ * Herbstsaison: Juli – Dezember
+ * Frühjahrssaison: Jänner – Juni
+ */
+function getCurrentSeason(): { label: string; start: Date; end: Date } {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = now.getMonth() // 0-indexed
+
+  if (month >= 6) {
+    // Jul–Dec: Herbstsaison
+    return {
+      label: `Herbst ${year}`,
+      start: new Date(year, 6, 1),   // 1. Juli
+      end: new Date(year, 11, 31),    // 31. Dezember
+    }
+  } else {
+    // Jan–Jun: Frühjahrssaison
+    return {
+      label: `Frühjahr ${year}`,
+      start: new Date(year, 0, 1),    // 1. Jänner
+      end: new Date(year, 5, 30),     // 30. Juni
+    }
+  }
 }
 
-type ViewMode = 'list' | 'week' | 'month'
-type TimeFilter = 'upcoming' | 'past'
+// ─── Main Dashboard ───────────────────────────────────────────────────────────
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+export default function DashboardPage() {
+  const { state: adminState, profile, isAllTeams } = useAdminProfile()
+  const { players, loading: playersLoading } = usePlayers()
+  const { teams, loading: teamsLoading } = useTeams()
+  const { events, loading: eventsLoading } = useEvents()
 
-export default function CalendarPage() {
-  const { events, loading, addEvent } = useEvents()
-  const { teams } = useTeams()
-  const [filterTeam, setFilterTeam] = useState('all')
-  const [viewMode, setViewMode] = useState<ViewMode>('list')
-  const [timeFilter, setTimeFilter] = useState<TimeFilter>('upcoming')
-  const [sheetOpen, setSheetOpen] = useState(false)
+  const loading = playersLoading || teamsLoading || eventsLoading || adminState.status === 'loading'
 
-  // Month/week navigation state
-  const [currentDate, setCurrentDate] = useState(new Date())
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null)
+  const myTeamIds = useMemo(() => {
+    if (isAllTeams) return teams.map(t => t.id)
+    return profile?.teamIds ?? []
+  }, [isAllTeams, profile, teams])
+
+  const myTeams = useMemo(
+    () => isAllTeams ? teams : teams.filter(t => myTeamIds.includes(t.id)),
+    [teams, myTeamIds, isAllTeams]
+  )
+
+  const myPlayers = useMemo(
+    () => players.filter(p => p.status !== 'inactive' && (isAllTeams || p.teamIds.some(id => myTeamIds.includes(id)))),
+    [players, myTeamIds, isAllTeams]
+  )
+
+  const now = new Date()
+
+  const myUpcomingEvents = useMemo(() => {
+    const twoWeeksLater = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)
+    return events
+      .filter(e => {
+        const d = toDate(e.startDate)
+        if (d < now || d > twoWeeksLater) return false
+        return isAllTeams || e.teamIds.some(id => myTeamIds.includes(id))
+      })
+      .sort((a, b) => toDate(a.startDate).getTime() - toDate(b.startDate).getTime())
+  }, [events, now, myTeamIds, isAllTeams])
+
+  const eventPlayerCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const event of myUpcomingEvents) {
+      counts[event.id] = myPlayers.filter(p => p.teamIds.some(id => event.teamIds.includes(id))).length
+    }
+    return counts
+  }, [myUpcomingEvents, myPlayers])
 
   const teamMap = useMemo(() => new Map(teams.map(t => [t.id, t])), [teams])
 
-  const filteredEvents = useMemo(() => {
-    let filtered = events
-    if (filterTeam === 'club-events') {
-      filtered = filtered.filter(e => e.teamIds.length === 0)
-    } else if (filterTeam !== 'all') {
-      filtered = filtered.filter(e => e.teamIds.includes(filterTeam))
-    }
-    return filtered
-  }, [events, filterTeam])
+  const injuredCount = myPlayers.filter(p => p.status === 'injured').length
+  const noAccountCount = myPlayers.filter(p => p.accountStatus === 'invited' || !p.accountStatus).length
 
-  async function handleAddEvent(data: Omit<ClubEvent, 'id' | 'clubId' | 'responseCount' | 'createdAt' | 'updatedAt'>) {
-    await addEvent(data)
-  }
+  const hour = now.getHours()
+  const greeting = hour < 12 ? 'Guten Morgen' : hour < 18 ? 'Guten Tag' : 'Guten Abend'
+
+  if (loading) return <DashboardSkeleton />
 
   return (
-    <div>
+    <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div>
         <h1 className="text-2xl font-semibold text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>
-          Kalender
+          {greeting}
         </h1>
-        <Button onClick={() => setSheetOpen(true)} style={{ backgroundColor: '#e94560', borderRadius: '6px' }}>
-          <Plus className="w-4 h-4 mr-2" />
-          Termin
-        </Button>
+        <p className="text-sm text-gray-500 mt-0.5">
+          {now.toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          {!isAllTeams && myTeams.length > 0 && <span className="ml-2">· {myTeams.map(t => t.name).join(', ')}</span>}
+        </p>
       </div>
 
-      {/* Controls: View toggle + Team filter */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-4">
-        {/* View mode toggle */}
-        <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
-          {([
-            { key: 'list' as ViewMode, label: 'Liste', icon: LayoutList },
-            { key: 'week' as ViewMode, label: 'Woche', icon: CalendarDays },
-            { key: 'month' as ViewMode, label: 'Monat', icon: Grid3X3 },
-          ]).map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              onClick={() => setViewMode(key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                viewMode === key ? 'bg-white shadow text-gray-900' : 'text-gray-500'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{label}</span>
-            </button>
-          ))}
-        </div>
-
-        <div className="flex-1" />
-
-        {/* Team filter */}
-        <Select value={filterTeam} onValueChange={setFilterTeam}>
-          <SelectTrigger className="w-full sm:w-48">
-            <SelectValue placeholder="Alle anzeigen" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Alle anzeigen</SelectItem>
-            <SelectItem value="club-events">
-              <span className="flex items-center gap-2">
-                <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: CLUB_EVENT_COLOR }} />
-                Vereins-Events
-              </span>
-            </SelectItem>
-            {teams.map(t => (
-              <SelectItem key={t.id} value={t.id}>
-                <span className="flex items-center gap-2">
-                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: t.color }} />
-                  {t.name}
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      {/* Zone 1: Quick Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label="Aktive Spieler" value={myPlayers.length} icon={Users} color="#1a1a2e" />
+        <StatCard label="Mannschaften" value={myTeams.length} icon={UserCheck} color="#0F6E56" />
+        <StatCard label="Verletzt" value={injuredCount} icon={ShieldAlert} color={injuredCount > 0 ? '#DC2626' : '#6B7280'} alert={injuredCount > 0} />
+        <StatCard label="Ohne App-Zugang" value={noAccountCount} icon={AlertCircle} color={noAccountCount > 0 ? '#F59E0B' : '#6B7280'} alert={noAccountCount > 0} href="/players" />
       </div>
 
-      {/* Content */}
-      {loading ? (
-        <div className="flex items-center justify-center h-64 text-gray-400">
-          <Loader2 className="w-5 h-5 animate-spin" />
-        </div>
-      ) : viewMode === 'list' ? (
-        <ListView
-          events={filteredEvents}
-          teamMap={teamMap}
-          timeFilter={timeFilter}
-          onTimeFilterChange={setTimeFilter}
-        />
-      ) : viewMode === 'week' ? (
-        <WeekView
-          events={filteredEvents}
-          teamMap={teamMap}
-          currentDate={currentDate}
-          onDateChange={setCurrentDate}
-        />
-      ) : (
-        <MonthView
-          events={filteredEvents}
-          teamMap={teamMap}
-          teams={teams}
-          currentDate={currentDate}
-          onDateChange={setCurrentDate}
-          selectedDate={selectedDate}
-          onSelectDate={setSelectedDate}
-        />
-      )}
-
-      {/* Legend */}
-      <div className="flex items-center gap-4 mt-4 text-xs text-gray-500 flex-wrap">
-        {teams.map(t => (
-          <div key={t.id} className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: t.color }} />
-            {t.name}
-          </div>
-        ))}
-        <div className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: CLUB_EVENT_COLOR }} />
-          Vereins-Events
-        </div>
-      </div>
-
-      <EventSheet
-        open={sheetOpen}
-        onClose={() => setSheetOpen(false)}
-        event={null}
-        teams={teams}
-        onSubmit={handleAddEvent}
-      />
-    </div>
-  )
-}
-
-// ─── LIST VIEW (Spond-style, default) ─────────────────────────────────────────
-
-function ListView({
-  events,
-  teamMap,
-  timeFilter,
-  onTimeFilterChange,
-}: {
-  events: ClubEvent[]
-  teamMap: Map<string, Team>
-  timeFilter: TimeFilter
-  onTimeFilterChange: (f: TimeFilter) => void
-}) {
-  const now = new Date()
-
-  const sorted = useMemo(() => {
-    const filtered = events.filter(e => {
-      const d = toDate(e.startDate)
-      return timeFilter === 'upcoming' ? d >= now : d < now
-    })
-    return filtered.sort((a, b) => {
-      const da = toDate(a.startDate).getTime()
-      const db = toDate(b.startDate).getTime()
-      return timeFilter === 'upcoming' ? da - db : db - da
-    })
-  }, [events, timeFilter, now])
-
-  // Group events by date
-  const grouped = useMemo(() => {
-    const groups: { date: Date; events: ClubEvent[] }[] = []
-    let currentGroup: { date: Date; events: ClubEvent[] } | null = null
-
-    for (const event of sorted) {
-      const d = toDate(event.startDate)
-      if (!currentGroup || !isSameDay(currentGroup.date, d)) {
-        currentGroup = { date: d, events: [] }
-        groups.push(currentGroup)
-      }
-      currentGroup.events.push(event)
-    }
-    return groups
-  }, [sorted])
-
-  return (
-    <div>
-      {/* Time toggle */}
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit mb-4">
-        <button
-          onClick={() => onTimeFilterChange('upcoming')}
-          className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-            timeFilter === 'upcoming' ? 'bg-white shadow text-gray-900' : 'text-gray-500'
-          }`}
-        >
-          Demnächst
-        </button>
-        <button
-          onClick={() => onTimeFilterChange('past')}
-          className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-            timeFilter === 'past' ? 'bg-white shadow text-gray-900' : 'text-gray-500'
-          }`}
-        >
-          Vorherige
-        </button>
-      </div>
-
-      {grouped.length === 0 ? (
-        <div className="text-center py-16 text-gray-400 border-2 border-dashed rounded-lg">
-          <CalendarDays className="w-8 h-8 mx-auto mb-2 opacity-40" />
-          <p className="text-sm">
-            {timeFilter === 'upcoming' ? 'Keine kommenden Termine' : 'Keine vergangenen Termine'}
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {grouped.map(({ date, events: dayEvents }) => {
-            const isToday = isSameDay(date, now)
-            const weekday = date.toLocaleDateString('de-AT', { weekday: 'short' })
-            const monthLabel = date.toLocaleDateString('de-AT', { month: 'long' })
-
-            return (
-              <div key={date.toISOString()}>
-                {/* Date header — shown once per group */}
-                <div className="flex items-center gap-4 mb-2 mt-4 first:mt-0">
-                  <div className="text-center w-14 shrink-0">
-                    <p className={`text-xs font-medium ${isToday ? 'text-[#e94560]' : 'text-gray-400'}`}>
-                      {weekday}.
-                    </p>
-                    <p
-                      className={`text-2xl font-bold leading-tight w-11 h-11 rounded-full inline-flex items-center justify-center ${
-                        isToday ? 'text-white' : 'text-gray-800'
-                      }`}
-                      style={isToday ? { backgroundColor: '#e94560' } : {}}
-                    >
-                      {date.getDate()}
-                    </p>
-                  </div>
-                  {/* Month label if first event or new month */}
-                  <p className="text-xs text-gray-400 uppercase tracking-wider">{monthLabel}</p>
-                </div>
-
-                {/* Event cards for this date */}
-                <div className="space-y-2 ml-[72px]">
-                  {dayEvents.map(event => (
-                    <ListEventCard key={event.id} event={event} teamMap={teamMap} />
-                  ))}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function ListEventCard({ event, teamMap }: { event: ClubEvent; teamMap: Map<string, Team> }) {
-  const d = toDate(event.startDate)
-  const endDate = event.endDate ? toDate(event.endDate) : null
-  const color = getEventColor(event, teamMap)
-  const teamNames = getEventTeamNames(event, teamMap)
-
-  const timeStr = d.toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })
-  const endTimeStr = endDate
-    ? endDate.toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })
-    : null
-
-  const accepted = event.responseCount?.accepted ?? 0
-  const declined = event.responseCount?.declined ?? 0
-
-  return (
-    <div
-      className="bg-white rounded-lg border overflow-hidden hover:shadow-sm transition-shadow"
-      style={{ borderRadius: '8px' }}
-    >
-      <div className="flex">
-        {/* Color bar */}
-        <div className="w-1.5 shrink-0" style={{ backgroundColor: color }} />
-
-        {/* Content */}
-        <div className="flex-1 p-4">
-          <p className="font-medium text-gray-900 text-sm">{event.title}</p>
-          <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 flex-wrap">
-            <span>
-              {timeStr}{endTimeStr ? ` - ${endTimeStr}` : ''} Uhr
-            </span>
-            {event.location && (
-              <span className="flex items-center gap-0.5">
-                <MapPin className="w-3 h-3" />
-                {event.location}
-              </span>
-            )}
-            <span className="flex items-center gap-0.5">
-              <Users className="w-3 h-3" />
-              {teamNames}
-            </span>
-          </div>
-
-          {/* Attendance row */}
-          <div className="flex items-center gap-3 mt-3">
-            <div className="flex items-center gap-1">
-              <span className="text-xs font-semibold text-green-700">{accepted}</span>
-              <span className="text-xs text-gray-400">zugesagt</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="text-xs font-semibold text-red-600">{declined}</span>
-              <span className="text-xs text-gray-400">abgesagt</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── WEEK VIEW ────────────────────────────────────────────────────────────────
-
-function WeekView({
-  events,
-  teamMap,
-  currentDate,
-  onDateChange,
-}: {
-  events: ClubEvent[]
-  teamMap: Map<string, Team>
-  currentDate: Date
-  onDateChange: (d: Date) => void
-}) {
-  const monday = getMonday(currentDate)
-  const today = new Date()
-
-  const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(monday)
-    d.setDate(d.getDate() + i)
-    return d
-  })
-
-  function prevWeek() {
-    const d = new Date(monday)
-    d.setDate(d.getDate() - 7)
-    onDateChange(d)
-  }
-
-  function nextWeek() {
-    const d = new Date(monday)
-    d.setDate(d.getDate() + 7)
-    onDateChange(d)
-  }
-
-  function goToday() {
-    onDateChange(new Date())
-  }
-
-  const sundayDate = weekDays[6]
-  const weekLabel = `${monday.getDate()}. ${MONTHS[monday.getMonth()].slice(0, 3)} – ${sundayDate.getDate()}. ${MONTHS[sundayDate.getMonth()].slice(0, 3)} ${sundayDate.getFullYear()}`
-
-  return (
-    <div>
-      {/* Navigation */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <button onClick={prevWeek} className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500">
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-          <h2 className="text-base font-semibold min-w-[220px] text-center" style={{ fontFamily: 'Outfit, sans-serif', color: '#1a1a2e' }}>
-            {weekLabel}
-          </h2>
-          <button onClick={nextWeek} className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500">
-            <ChevronRight className="w-5 h-5" />
-          </button>
-        </div>
-        <button onClick={goToday} className="text-sm text-gray-500 hover:text-gray-800 px-3 py-1 rounded-md hover:bg-gray-100">
-          Heute
-        </button>
-      </div>
-
-      {/* Week grid */}
-      <div className="bg-white rounded-lg border overflow-hidden" style={{ borderRadius: '8px' }}>
-        <div className="grid grid-cols-7 divide-x">
-          {weekDays.map((day, i) => {
-            const isToday = isSameDay(day, today)
-            const dayEvents = events
-              .filter(e => isSameDay(toDate(e.startDate), day))
-              .sort((a, b) => toDate(a.startDate).getTime() - toDate(b.startDate).getTime())
-
-            return (
-              <div key={i} className="min-h-[140px]">
-                {/* Day Header */}
-                <div className={`px-2 py-2 text-center border-b ${isToday ? 'bg-red-50' : 'bg-gray-50'}`}>
-                  <p className={`text-xs font-medium ${isToday ? 'text-[#e94560]' : 'text-gray-400'}`}>
-                    {WEEKDAYS[i]}
-                  </p>
-                  <p
-                    className={`text-sm font-bold w-7 h-7 rounded-full inline-flex items-center justify-center ${
-                      isToday ? 'text-white' : 'text-gray-800'
-                    }`}
-                    style={isToday ? { backgroundColor: '#e94560' } : {}}
-                  >
-                    {day.getDate()}
-                  </p>
-                </div>
-
-                {/* Events */}
-                <div className="p-1 space-y-1">
-                  {dayEvents.slice(0, 4).map(ev => {
-                    const color = getEventColor(ev, teamMap)
-                    const time = toDate(ev.startDate).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })
-                    return (
-                      <div
-                        key={ev.id}
-                        className="text-[10px] font-medium px-1.5 py-1 rounded truncate"
-                        style={{ backgroundColor: `${color}15`, color }}
-                        title={`${ev.title} – ${time}`}
-                      >
-                        <span className="opacity-70">{time}</span> {ev.title}
-                      </div>
-                    )
-                  })}
-                  {dayEvents.length > 4 && (
-                    <p className="text-[10px] text-gray-400 text-center">+{dayEvents.length - 4}</p>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── MONTH VIEW ───────────────────────────────────────────────────────────────
-
-function MonthView({
-  events,
-  teamMap,
-  teams,
-  currentDate,
-  onDateChange,
-  selectedDate,
-  onSelectDate,
-}: {
-  events: ClubEvent[]
-  teamMap: Map<string, Team>
-  teams: Team[]
-  currentDate: Date
-  onDateChange: (d: Date) => void
-  selectedDate: Date | null
-  onSelectDate: (d: Date | null) => void
-}) {
-  const year = currentDate.getFullYear()
-  const month = currentDate.getMonth()
-  const today = new Date()
-
-  function prevMonth() { onDateChange(new Date(year, month - 1, 1)); onSelectDate(null) }
-  function nextMonth() { onDateChange(new Date(year, month + 1, 1)); onSelectDate(null) }
-  function goToday() { onDateChange(new Date()); onSelectDate(new Date()) }
-
-  // Build grid
-  const days: Date[] = []
-  const date = new Date(year, month, 1)
-  while (date.getMonth() === month) { days.push(new Date(date)); date.setDate(date.getDate() + 1) }
-
-  const firstDayOfWeek = (days[0].getDay() + 6) % 7
-  const paddingBefore = Array.from({ length: firstDayOfWeek }, (_, i) => new Date(year, month, -firstDayOfWeek + i + 1))
-  const allCells = [...paddingBefore, ...days]
-  const remaining = (7 - (allCells.length % 7)) % 7
-  const paddingAfter = Array.from({ length: remaining }, (_, i) => new Date(year, month + 1, i + 1))
-  const grid = [...allCells, ...paddingAfter]
-
-  const selectedDayEvents = selectedDate
-    ? events.filter(e => isSameDay(toDate(e.startDate), selectedDate))
-    : []
-
-  return (
-    <div>
-      {/* Navigation */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <button onClick={prevMonth} className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500">
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-          <h2 className="text-lg font-semibold min-w-[200px] text-center" style={{ fontFamily: 'Outfit, sans-serif', color: '#1a1a2e' }}>
-            {MONTHS[month]} {year}
-          </h2>
-          <button onClick={nextMonth} className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500">
-            <ChevronRight className="w-5 h-5" />
-          </button>
-        </div>
-        <button onClick={goToday} className="text-sm text-gray-500 hover:text-gray-800 px-3 py-1 rounded-md hover:bg-gray-100">
-          Heute
-        </button>
-      </div>
-
+      {/* Zone 2: Events + Pending */}
       <div className="flex gap-4 flex-col lg:flex-row">
-        {/* Grid */}
-        <div className="flex-1 bg-white rounded-lg border overflow-hidden" style={{ borderRadius: '8px' }}>
-          <div className="grid grid-cols-7 border-b">
-            {WEEKDAYS.map(d => (
-              <div key={d} className="py-2 text-center text-xs font-medium text-gray-400">{d}</div>
-            ))}
+        {/* Left: Next Events */}
+        <div className="flex-1 bg-white rounded-lg border p-5" style={{ borderRadius: '8px' }}>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-gray-700" style={{ fontFamily: 'Outfit, sans-serif' }}>Kommende Termine</h2>
+            <Link href="/events" className="text-xs text-gray-400 hover:text-gray-700">Alle anzeigen</Link>
           </div>
-          <div className="grid grid-cols-7">
-            {grid.map((cellDate, i) => {
-              const isCurrentMonth = cellDate.getMonth() === month
-              const isToday = isSameDay(cellDate, today)
-              const isSelected = selectedDate && isSameDay(cellDate, selectedDate)
-              const dayEvents = events.filter(e => isSameDay(toDate(e.startDate), cellDate))
-
-              return (
-                <button
-                  key={i}
-                  onClick={() => onSelectDate(cellDate)}
-                  className={`min-h-[72px] md:min-h-[88px] p-1.5 border-b border-r text-left transition-colors
-                    ${!isCurrentMonth ? 'bg-gray-50' : 'hover:bg-gray-50'}
-                    ${isSelected ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : ''}`}
-                >
-                  <span
-                    className={`inline-flex items-center justify-center w-6 h-6 text-xs font-medium rounded-full
-                      ${isToday ? 'text-white' : isCurrentMonth ? 'text-gray-700' : 'text-gray-300'}`}
-                    style={isToday ? { backgroundColor: '#e94560' } : {}}
-                  >
-                    {cellDate.getDate()}
-                  </span>
-                  <div className="mt-0.5 space-y-0.5">
-                    {dayEvents.slice(0, 3).map(ev => {
-                      const color = getEventColor(ev, teamMap)
-                      return (
-                        <div key={ev.id} className="flex items-center gap-1 px-1 py-0.5 rounded text-[10px] font-medium truncate"
-                          style={{ backgroundColor: `${color}15`, color }}>
-                          <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                          <span className="truncate hidden sm:inline">{ev.title}</span>
-                        </div>
-                      )
-                    })}
-                    {dayEvents.length > 3 && <span className="text-[10px] text-gray-400 pl-1">+{dayEvents.length - 3}</span>}
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Sidebar */}
-        <div className="lg:w-72 shrink-0">
-          {selectedDate ? (
-            <div className="bg-white rounded-lg border p-4" style={{ borderRadius: '8px' }}>
-              <h3 className="text-sm font-semibold text-gray-700 mb-3" style={{ fontFamily: 'Outfit, sans-serif' }}>
-                {selectedDate.toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long' })}
-              </h3>
-              {selectedDayEvents.length === 0 ? (
-                <p className="text-sm text-gray-400">Keine Termine an diesem Tag.</p>
-              ) : (
-                <div className="space-y-2">
-                  {selectedDayEvents.map(ev => {
-                    const time = toDate(ev.startDate).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })
-                    const color = getEventColor(ev, teamMap)
-                    return (
-                      <div key={ev.id} className="p-3 rounded-lg border">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-                          <span className="text-xs text-gray-400">{TYPE_LABELS[ev.type] ?? 'Termin'}</span>
-                          <span className="text-xs text-gray-400 ml-auto">{time}</span>
-                        </div>
-                        <p className="text-sm font-medium text-gray-900 truncate">{ev.title}</p>
-                        <div className="flex items-center gap-1.5 mt-2">
-                          <Badge variant="success" className="text-[10px]">{ev.responseCount?.accepted ?? 0}</Badge>
-                          <Badge variant="muted" className="text-[10px]">{ev.responseCount?.declined ?? 0}</Badge>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
+          {myUpcomingEvents.length === 0 ? (
+            <div className="text-center py-10 text-gray-400">
+              <CalendarDays className="w-7 h-7 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">Keine Termine in den nächsten 2 Wochen</p>
             </div>
           ) : (
-            <div className="bg-white rounded-lg border p-4 text-center" style={{ borderRadius: '8px' }}>
-              <p className="text-sm text-gray-400">Klicke auf einen Tag.</p>
+            <div className="space-y-2">
+              {myUpcomingEvents.slice(0, 6).map(event => (
+                <EventRow key={event.id} event={event} totalPlayers={eventPlayerCounts[event.id] ?? 0} teamMap={teamMap} />
+              ))}
             </div>
           )}
         </div>
+
+        {/* Right: Pending */}
+        <div className="lg:w-72 shrink-0 bg-white rounded-lg border p-5" style={{ borderRadius: '8px' }}>
+          <div className="flex items-center gap-2 mb-4">
+            <Bell className="w-4 h-4 text-gray-400" />
+            <h2 className="text-sm font-semibold text-gray-700" style={{ fontFamily: 'Outfit, sans-serif' }}>Offene Rückmeldungen</h2>
+          </div>
+          <PendingList events={myUpcomingEvents} playerCounts={eventPlayerCounts} teamMap={teamMap} />
+        </div>
       </div>
+
+      {/* Zone 3: Trainingskaiser + Trainingsmuffel */}
+      <TrainingLeaderboard players={myPlayers} myTeamIds={myTeamIds} isAllTeams={isAllTeams} />
+
+      {/* Zone 4: Week Strip */}
+      <div className="bg-white rounded-lg border p-5" style={{ borderRadius: '8px' }}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-gray-700" style={{ fontFamily: 'Outfit, sans-serif' }}>Diese Woche</h2>
+          <Link href="/calendar" className="text-xs text-gray-400 hover:text-gray-700">Kalender öffnen</Link>
+        </div>
+        <WeekStrip events={myUpcomingEvents} teamMap={teamMap} />
+      </div>
+    </div>
+  )
+}
+
+// ─── Stat Card ────────────────────────────────────────────────────────────────
+
+function StatCard({ label, value, icon: Icon, color, alert, href }: {
+  label: string; value: number; icon: React.ElementType; color: string; alert?: boolean; href?: string
+}) {
+  const content = (
+    <div className={`bg-white rounded-lg border p-4 ${href ? 'hover:shadow-sm transition-shadow cursor-pointer' : ''}`} style={{ borderRadius: '8px' }}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${color}12` }}>
+          <Icon className="w-4 h-4" style={{ color }} />
+        </div>
+        {alert && <span className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: color }} />}
+      </div>
+      <p className="text-2xl font-bold" style={{ fontFamily: 'Outfit, sans-serif', color: '#1a1a2e' }}>{value}</p>
+      <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+    </div>
+  )
+  if (href) return <Link href={href}>{content}</Link>
+  return content
+}
+
+// ─── Event Row ────────────────────────────────────────────────────────────────
+
+function EventRow({ event, totalPlayers, teamMap }: { event: ClubEvent; totalPlayers: number; teamMap: Map<string, Team> }) {
+  const date = toDate(event.startDate)
+  const accepted = event.responseCount?.accepted ?? 0
+  const percent = totalPlayers > 0 ? Math.round((accepted / totalPlayers) * 100) : 0
+  const barColor = percent >= 75 ? '#10B981' : percent >= 40 ? '#F59E0B' : '#EF4444'
+  const firstTeam = event.teamIds.length > 0 ? teamMap.get(event.teamIds[0]) : null
+  const teamColor = firstTeam?.color ?? '#F59E0B'
+  const TYPE_LABELS: Record<string, string> = { training: 'Training', match: 'Spiel', meeting: 'Meeting', other: 'Termin' }
+  const isToday = isSameDay(date, new Date())
+  const isTomorrow = isSameDay(date, new Date(Date.now() + 86400000))
+  const dayLabel = isToday ? 'Heute' : isTomorrow ? 'Morgen' : date.toLocaleDateString('de-AT', { weekday: 'short', day: 'numeric', month: 'short' })
+
+  return (
+    <Link href="/events" className="flex items-center gap-3 p-3 rounded-lg border hover:shadow-sm transition-shadow">
+      <div className="w-1 h-10 rounded-full shrink-0" style={{ backgroundColor: teamColor }} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">{TYPE_LABELS[event.type] ?? 'Termin'}</span>
+          {isToday && <Badge variant="destructive" className="text-[10px] bg-red-100 text-red-700 border-0">Heute</Badge>}
+        </div>
+        <p className="text-sm font-medium text-gray-900 truncate">{event.title}</p>
+        <p className="text-xs text-gray-400">{dayLabel} · {date.toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })}{event.location && ` · ${event.location}`}</p>
+      </div>
+      <div className="shrink-0 w-20 text-right">
+        <p className="text-sm font-semibold" style={{ color: barColor }}>{accepted}/{totalPlayers}</p>
+        <div className="w-full h-1.5 bg-gray-100 rounded-full mt-1 overflow-hidden">
+          <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(percent, 100)}%`, backgroundColor: barColor }} />
+        </div>
+      </div>
+    </Link>
+  )
+}
+
+// ─── Pending List ─────────────────────────────────────────────────────────────
+
+function PendingList({ events, playerCounts, teamMap }: { events: ClubEvent[]; playerCounts: Record<string, number>; teamMap: Map<string, Team> }) {
+  const withPending = events
+    .map(e => ({ event: e, pending: Math.max(0, (playerCounts[e.id] ?? 0) - (e.responseCount?.total ?? 0)), total: playerCounts[e.id] ?? 0 }))
+    .filter(e => e.pending > 0)
+    .sort((a, b) => b.pending - a.pending)
+    .slice(0, 5)
+
+  if (withPending.length === 0) {
+    return <div className="text-center py-8 text-gray-400"><TrendingUp className="w-6 h-6 mx-auto mb-2 opacity-40" /><p className="text-xs">Alle haben geantwortet</p></div>
+  }
+
+  return (
+    <div className="space-y-2">
+      {withPending.map(({ event, pending, total }) => {
+        const firstTeam = event.teamIds.length > 0 ? teamMap.get(event.teamIds[0]) : null
+        return (
+          <div key={event.id} className="p-3 rounded-lg bg-gray-50 space-y-2">
+            <div className="flex items-center gap-2">
+              {firstTeam && <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: firstTeam.color }} />}
+              <p className="text-xs font-medium text-gray-800 truncate flex-1">{event.title}</p>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500"><span className="font-semibold text-amber-600">{pending}</span> von {total} offen</span>
+              <Link href="/events" className="text-[10px] font-medium px-2 py-1 rounded-md text-white" style={{ backgroundColor: '#e94560' }}>Details</Link>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── Trainingskaiser / Trainingsmuffel ────────────────────────────────────────
+
+interface PlayerAttendance {
+  player: Player
+  attended: number
+  total: number
+  noResponse: number
+  quote: number
+}
+
+function TrainingLeaderboard({ players, myTeamIds, isAllTeams }: {
+  players: Player[]; myTeamIds: string[]; isAllTeams: boolean
+}) {
+  const [stats, setStats] = useState<PlayerAttendance[]>([])
+  const [loading, setLoading] = useState(true)
+  const season = getCurrentSeason()
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const startTs = Timestamp.fromDate(season.start)
+        const nowTs = Timestamp.now()
+
+        // Load training events in this season for my teams
+        const teamBatches = isAllTeams ? [myTeamIds] : [myTeamIds]
+        const allEvents: { id: string; teamIds: string[] }[] = []
+
+        for (let i = 0; i < myTeamIds.length; i += 10) {
+          const batch = myTeamIds.slice(i, i + 10)
+          if (batch.length === 0) continue
+          const snap = await getDocs(
+            query(
+              collection(db, 'clubs', CLUB_ID, 'events'),
+              where('teamIds', 'array-contains-any', batch),
+              where('type', '==', 'training'),
+              where('startDate', '>=', startTs),
+              where('startDate', '<=', nowTs),
+              orderBy('startDate', 'asc')
+            )
+          )
+          snap.docs.forEach(d => {
+            if (!allEvents.find(e => e.id === d.id)) {
+              allEvents.push({ id: d.id, teamIds: d.data().teamIds ?? [] })
+            }
+          })
+        }
+
+        if (allEvents.length === 0) { setStats([]); setLoading(false); return }
+
+        // Load responses for each event
+        const responsesByEvent: Record<string, Record<string, string>> = {}
+        await Promise.all(allEvents.map(async (event) => {
+          const snap = await getDocs(
+            collection(db, 'clubs', CLUB_ID, 'events', event.id, 'responses')
+          )
+          const map: Record<string, string> = {}
+          snap.docs.forEach(d => { map[d.id] = d.data().status })
+          responsesByEvent[event.id] = map
+        }))
+
+        // Compute per-player stats
+        const playerStats: PlayerAttendance[] = players.map(player => {
+          // Only count events for teams this player belongs to
+          const relevantEvents = allEvents.filter(e =>
+            e.teamIds.some(tid => player.teamIds.includes(tid))
+          )
+          const total = relevantEvents.length
+          let attended = 0
+          let noResponse = 0
+
+          for (const event of relevantEvents) {
+            const response = responsesByEvent[event.id]?.[player.id]
+            if (response === 'accepted') attended++
+            else if (!response) noResponse++
+          }
+
+          return {
+            player,
+            attended,
+            total,
+            noResponse,
+            quote: total > 0 ? Math.round((attended / total) * 100) : 0,
+          }
+        }).filter(s => s.total > 0) // Only players with at least 1 training
+
+        playerStats.sort((a, b) => b.quote - a.quote)
+        setStats(playerStats)
+      } catch (err) {
+        console.error('[TrainingLeaderboard]', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    if (myTeamIds.length > 0) load()
+    else setLoading(false)
+  }, [players, myTeamIds, isAllTeams, season.start.getTime()])
+
+  const top3 = stats.slice(0, 3)
+  const bottom3 = stats.filter(s => s.total >= 3).slice(-3).reverse() // At least 3 trainings to qualify
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Skeleton className="h-56 rounded-lg" />
+        <Skeleton className="h-56 rounded-lg" />
+      </div>
+    )
+  }
+
+  if (stats.length === 0) return null
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Trainingskaiser */}
+      <div className="bg-white rounded-lg border p-5" style={{ borderRadius: '8px' }}>
+        <div className="flex items-center gap-2 mb-1">
+          <Trophy className="w-4 h-4 text-amber-500" />
+          <h2 className="text-sm font-semibold text-gray-700" style={{ fontFamily: 'Outfit, sans-serif' }}>Trainingskaiser</h2>
+        </div>
+        <p className="text-xs text-gray-400 mb-4">{season.label} · höchste Beteiligung</p>
+
+        <div className="space-y-3">
+          {top3.map((s, i) => (
+            <div key={s.player.id} className="flex items-center gap-3">
+              {/* Rank */}
+              <div
+                className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                style={{
+                  backgroundColor: i === 0 ? '#F59E0B' : i === 1 ? '#94A3B8' : '#B45309',
+                  color: '#fff',
+                }}
+              >
+                {i + 1}
+              </div>
+
+              {/* Avatar */}
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0" style={{ backgroundColor: '#1a1a2e' }}>
+                {s.player.firstName[0]}{s.player.lastName[0]}
+              </div>
+
+              {/* Name + Stats */}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 truncate">
+                  {s.player.firstName} {s.player.lastName}
+                </p>
+                <p className="text-xs text-gray-400">{s.attended} von {s.total} Trainings</p>
+              </div>
+
+              {/* Quote */}
+              <div className="text-right shrink-0">
+                <p className="text-lg font-bold" style={{ color: '#10B981', fontFamily: 'Outfit, sans-serif' }}>
+                  {s.quote}%
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <Link href="/stats/training" className="block text-center text-xs text-gray-400 hover:text-gray-700 mt-4 pt-3 border-t">
+          Alle Statistiken anzeigen
+        </Link>
+      </div>
+
+      {/* Trainingsmuffel */}
+      <div className="bg-white rounded-lg border p-5" style={{ borderRadius: '8px' }}>
+        <div className="flex items-center gap-2 mb-1">
+          <ArrowDownRight className="w-4 h-4 text-red-400" />
+          <h2 className="text-sm font-semibold text-gray-700" style={{ fontFamily: 'Outfit, sans-serif' }}>Trainingsmuffel</h2>
+        </div>
+        <p className="text-xs text-gray-400 mb-4">{season.label} · niedrigste Beteiligung</p>
+
+        {bottom3.length === 0 ? (
+          <div className="text-center py-6 text-gray-400">
+            <p className="text-xs">Zu wenig Daten (min. 3 Trainings nötig)</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {bottom3.map((s, i) => (
+              <div key={s.player.id} className="flex items-center gap-3">
+                {/* Avatar */}
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0" style={{ backgroundColor: '#6B7280' }}>
+                  {s.player.firstName[0]}{s.player.lastName[0]}
+                </div>
+
+                {/* Name + Stats */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900 truncate">
+                    {s.player.firstName} {s.player.lastName}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {s.attended} von {s.total} Trainings
+                    {s.noResponse > 0 && <span className="text-amber-500"> · {s.noResponse}× keine Antwort</span>}
+                  </p>
+                </div>
+
+                {/* Quote */}
+                <div className="text-right shrink-0">
+                  <p className="text-lg font-bold" style={{ color: s.quote < 30 ? '#EF4444' : '#F59E0B', fontFamily: 'Outfit, sans-serif' }}>
+                    {s.quote}%
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <Link href="/stats/training" className="block text-center text-xs text-gray-400 hover:text-gray-700 mt-4 pt-3 border-t">
+          Alle Statistiken anzeigen
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+// ─── Week Strip ───────────────────────────────────────────────────────────────
+
+function WeekStrip({ events, teamMap }: { events: ClubEvent[]; teamMap: Map<string, Team> }) {
+  const today = new Date()
+  const monday = getMonday(today)
+  const weekDays = Array.from({ length: 7 }, (_, i) => { const d = new Date(monday); d.setDate(d.getDate() + i); return d })
+
+  return (
+    <div className="grid grid-cols-7 gap-2">
+      {weekDays.map((day, i) => {
+        const isToday = isSameDay(day, today)
+        const dayEvents = events.filter(e => isSameDay(toDate(e.startDate), day))
+        return (
+          <div key={i} className="text-center">
+            <p className={`text-xs font-medium mb-2 ${isToday ? 'text-[#e94560]' : 'text-gray-400'}`}>{WEEKDAYS[i]}</p>
+            <p className={`text-sm font-semibold mb-2 w-7 h-7 rounded-full inline-flex items-center justify-center ${isToday ? 'text-white' : 'text-gray-700'}`}
+              style={isToday ? { backgroundColor: '#e94560' } : {}}>
+              {day.getDate()}
+            </p>
+            <div className="space-y-1 min-h-[28px]">
+              {dayEvents.slice(0, 3).map(ev => {
+                const ft = ev.teamIds.length > 0 ? teamMap.get(ev.teamIds[0]) : null
+                const color = ft?.color ?? '#F59E0B'
+                const label = ft?.name ? (ft.name.length > 6 ? ft.name.slice(0, 5) + '…' : ft.name) : 'Event'
+                return (
+                  <div key={ev.id} className="text-[10px] font-medium px-1 py-0.5 rounded truncate"
+                    style={{ backgroundColor: `${color}18`, color }} title={ev.title}>
+                    {label}
+                  </div>
+                )
+              })}
+              {dayEvents.length > 3 && <p className="text-[10px] text-gray-400">+{dayEvents.length - 3}</p>}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div><Skeleton className="h-8 w-64 mb-1" /><Skeleton className="h-4 w-48" /></div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">{[1,2,3,4].map(i => <Skeleton key={i} className="h-24 rounded-lg" />)}</div>
+      <div className="flex gap-4 flex-col lg:flex-row"><Skeleton className="flex-1 h-80 rounded-lg" /><Skeleton className="lg:w-72 h-80 rounded-lg" /></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><Skeleton className="h-56 rounded-lg" /><Skeleton className="h-56 rounded-lg" /></div>
+      <Skeleton className="h-40 rounded-lg" />
     </div>
   )
 }
