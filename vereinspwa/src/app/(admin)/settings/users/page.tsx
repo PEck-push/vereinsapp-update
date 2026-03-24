@@ -9,39 +9,17 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { MultiSelect } from '@/components/ui/multi-select'
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/components/ui/toaster'
-import {
-  AlertCircle,
-  ArrowLeft,
-  Loader2,
-  MoreHorizontal,
-  Plus,
-  Shield,
-  Trash2,
-  UserPlus,
-  Users,
-} from 'lucide-react'
+import { AlertCircle, ArrowLeft, Loader2, MoreHorizontal, Plus, Shield, Trash2, UserPlus, Users } from 'lucide-react'
 
 interface AdminUser {
   uid: string
@@ -53,26 +31,10 @@ interface AdminUser {
 }
 
 const ROLE_INFO: Record<string, { label: string; description: string; color: string }> = {
-  admin: {
-    label: 'Admin',
-    description: 'Voller Zugriff auf alles',
-    color: '#DC2626',
-  },
-  funktionaer: {
-    label: 'Funktionär',
-    description: 'Alles sehen, Termine anlegen',
-    color: '#8B5CF6',
-  },
-  trainer: {
-    label: 'Trainer',
-    description: 'Nur zugewiesene Mannschaften',
-    color: '#3B82F6',
-  },
-  secretary: {
-    label: 'Sekretär',
-    description: 'Voller Zugriff, Admin-ähnlich',
-    color: '#10B981',
-  },
+  admin: { label: 'Admin', description: 'Voller Zugriff auf alles', color: '#DC2626' },
+  funktionaer: { label: 'Funktionär', description: 'Alles sehen, Termine anlegen', color: '#8B5CF6' },
+  trainer: { label: 'Trainer', description: 'Nur zugewiesene Mannschaften', color: '#3B82F6' },
+  secretary: { label: 'Sekretär', description: 'Voller Zugriff, Admin-ähnlich', color: '#10B981' },
 }
 
 export default function AdminUsersPage() {
@@ -80,21 +42,21 @@ export default function AdminUsersPage() {
   const { teams } = useTeams()
   const [users, setUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null)
   const [deleting, setDeleting] = useState(false)
 
   async function loadUsers() {
+    setLoadError(false)
     try {
       const res = await fetch('/api/admin/users')
       if (!res.ok) throw new Error()
       const data = await res.json()
       setUsers(data.users ?? [])
     } catch {
-      toast.error('Benutzer konnten nicht geladen werden')
-    } finally {
-      setLoading(false)
-    }
+      setLoadError(true)
+    } finally { setLoading(false) }
   }
 
   useEffect(() => { loadUsers() }, [])
@@ -112,48 +74,23 @@ export default function AdminUsersPage() {
       toast.success('Benutzer entfernt')
       setDeleteTarget(null)
       loadUsers()
-    } catch {
-      toast.error('Löschen fehlgeschlagen')
-    } finally {
-      setDeleting(false)
-    }
-  }
-
-  function getTeamNames(teamIds: string[]): string {
-    if (teamIds.length === 0) return 'Alle Teams'
-    return teamIds
-      .map(id => teams.find(t => t.id === id)?.name)
-      .filter(Boolean)
-      .join(', ')
+    } catch { toast.error('Löschen fehlgeschlagen') }
+    finally { setDeleting(false) }
   }
 
   return (
     <div className="max-w-3xl">
-      {/* Back */}
-      <button
-        onClick={() => router.push('/settings')}
-        className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 mb-6"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Zurück zu Einstellungen
+      <button onClick={() => router.push('/settings')} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 mb-6">
+        <ArrowLeft className="w-4 h-4" /> Zurück zu Einstellungen
       </button>
 
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1
-            className="text-2xl font-semibold text-gray-900"
-            style={{ fontFamily: 'Outfit, sans-serif' }}
-          >
-            Benutzer & Rollen
-          </h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Admins, Trainer und Funktionäre verwalten
-          </p>
+          <h1 className="text-2xl font-semibold text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>Benutzer & Rollen</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Admins, Trainer und Funktionäre verwalten</p>
         </div>
         <Button variant="club" onClick={() => setCreateOpen(true)}>
-          <UserPlus className="w-4 h-4 mr-2" />
-          Benutzer anlegen
+          <UserPlus className="w-4 h-4 mr-2" /> Benutzer anlegen
         </Button>
       </div>
 
@@ -163,55 +100,47 @@ export default function AdminUsersPage() {
           <div key={key} className="flex items-center gap-2 text-xs text-gray-500">
             <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: info.color }} />
             <span className="font-medium text-gray-700">{info.label}</span>
-            <span>— {info.description}</span>
+            <span className="hidden sm:inline">— {info.description}</span>
           </div>
         ))}
       </div>
 
-      {/* User List */}
+      {/* Content */}
       {loading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map(i => <Skeleton key={i} className="h-20 rounded-lg" />)}
+        <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-20 rounded-lg" />)}</div>
+      ) : loadError ? (
+        <div className="text-center py-12 text-gray-400 border-2 border-dashed rounded-lg">
+          <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-40" />
+          <p className="text-sm">Benutzer konnten nicht geladen werden.</p>
+          <p className="text-xs text-gray-400 mt-1">Prüfe ob die API-Route korrekt angelegt ist.</p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => { setLoading(true); loadUsers() }}>
+            Erneut versuchen
+          </Button>
         </div>
       ) : users.length === 0 ? (
         <div className="text-center py-16 text-gray-400 border-2 border-dashed rounded-lg">
           <Shield className="w-8 h-8 mx-auto mb-2 opacity-40" />
-          <p className="text-sm">Noch keine Admin-Benutzer angelegt.</p>
+          <p className="text-sm font-medium text-gray-600">Noch keine Benutzer angelegt</p>
+          <p className="text-xs text-gray-400 mt-1 max-w-xs mx-auto">
+            Erstelle Admin-, Trainer- oder Funktionär-Accounts damit sich dein Team einloggen kann.
+          </p>
+          <Button variant="club" size="sm" className="mt-4" onClick={() => setCreateOpen(true)}>
+            <UserPlus className="w-4 h-4 mr-2" /> Ersten Benutzer anlegen
+          </Button>
         </div>
       ) : (
         <div className="space-y-2">
           {users.map(user => {
             const roleInfo = ROLE_INFO[user.role] ?? ROLE_INFO.admin
             return (
-              <div
-                key={user.uid}
-                className="flex items-center gap-4 p-4 bg-white rounded-lg border"
-                style={{ borderRadius: '8px' }}
-              >
-                {/* Avatar */}
-                <div
-                  className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-semibold shrink-0"
-                  style={{ backgroundColor: roleInfo.color }}
-                >
+              <div key={user.uid} className="flex items-center gap-4 p-4 bg-white rounded-lg border" style={{ borderRadius: '8px' }}>
+                <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-semibold shrink-0" style={{ backgroundColor: roleInfo.color }}>
                   {(user.displayName || user.email || '??').substring(0, 2).toUpperCase()}
                 </div>
-
-                {/* Info */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-gray-900 truncate">
-                      {user.displayName || user.email}
-                    </p>
-                    <Badge
-                      className="text-[10px]"
-                      style={{
-                        backgroundColor: `${roleInfo.color}15`,
-                        color: roleInfo.color,
-                        border: 'none',
-                      }}
-                    >
-                      {roleInfo.label}
-                    </Badge>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium text-gray-900 truncate">{user.displayName || user.email}</p>
+                    <Badge className="text-[10px]" style={{ backgroundColor: `${roleInfo.color}15`, color: roleInfo.color, border: 'none' }}>{roleInfo.label}</Badge>
                   </div>
                   <p className="text-xs text-gray-400 truncate">{user.email}</p>
                   {user.role === 'trainer' && user.teamIds.length > 0 && (
@@ -220,31 +149,18 @@ export default function AdminUsersPage() {
                       {user.teamIds.map(id => {
                         const team = teams.find(t => t.id === id)
                         if (!team) return null
-                        return (
-                          <span key={id} className="flex items-center gap-1 text-xs text-gray-500">
-                            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: team.color }} />
-                            {team.name}
-                          </span>
-                        )
+                        return <span key={id} className="flex items-center gap-1 text-xs text-gray-500"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: team.color }} />{team.name}</span>
                       })}
                     </div>
                   )}
                 </div>
-
-                {/* Actions */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400">
-                      <MoreHorizontal className="w-4 h-4" />
-                    </Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400"><MoreHorizontal className="w-4 h-4" /></Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={() => setDeleteTarget(user)}
-                      className="text-red-600 focus:text-red-600 focus:bg-red-50"
-                    >
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Entfernen
+                    <DropdownMenuItem onClick={() => setDeleteTarget(user)} className="text-red-600 focus:text-red-600 focus:bg-red-50">
+                      <Trash2 className="w-4 h-4 mr-2" /> Entfernen
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -254,33 +170,18 @@ export default function AdminUsersPage() {
         </div>
       )}
 
-      {/* Create Dialog */}
-      <CreateAdminDialog
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        teams={teams}
-        onCreated={() => { setCreateOpen(false); loadUsers() }}
-      />
+      <CreateAdminDialog open={createOpen} onClose={() => setCreateOpen(false)} teams={teams} onCreated={() => { setCreateOpen(false); loadUsers() }} />
 
-      {/* Delete Dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Benutzer entfernen?</DialogTitle>
-            <DialogDescription>
-              Die Admin-Rechte werden entfernt. Der Login-Account bleibt bestehen.
-            </DialogDescription>
+            <DialogDescription>Die Admin-Rechte werden entfernt. Der Login-Account bleibt bestehen.</DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-gray-600">
-            <strong>{deleteTarget?.displayName || deleteTarget?.email}</strong> verliert
-            alle Verwaltungsrechte für diesen Verein.
-          </p>
+          <p className="text-sm text-gray-600"><strong>{deleteTarget?.displayName || deleteTarget?.email}</strong> verliert alle Verwaltungsrechte.</p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>Abbrechen</Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
-              {deleting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Entfernen
-            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}Entfernen</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -288,18 +189,8 @@ export default function AdminUsersPage() {
   )
 }
 
-// ─── Create Dialog ────────────────────────────────────────────────────────────
-
-function CreateAdminDialog({
-  open,
-  onClose,
-  teams,
-  onCreated,
-}: {
-  open: boolean
-  onClose: () => void
-  teams: ReturnType<typeof useTeams>['teams']
-  onCreated: () => void
+function CreateAdminDialog({ open, onClose, teams, onCreated }: {
+  open: boolean; onClose: () => void; teams: ReturnType<typeof useTeams>['teams']; onCreated: () => void
 }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -309,11 +200,7 @@ function CreateAdminDialog({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  function reset() {
-    setEmail(''); setPassword(''); setDisplayName('')
-    setRole('trainer'); setTeamIds([]); setError(null)
-  }
-
+  function reset() { setEmail(''); setPassword(''); setDisplayName(''); setRole('trainer'); setTeamIds([]); setError(null) }
   function handleClose() { reset(); onClose() }
 
   async function handleSubmit() {
@@ -327,26 +214,14 @@ function CreateAdminDialog({
       const res = await fetch('/api/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email,
-          password,
-          displayName: displayName.trim() || undefined,
-          role,
-          teamIds: role === 'trainer' ? teamIds : [],
-        }),
+        body: JSON.stringify({ email, password, displayName: displayName.trim() || undefined, role, teamIds: role === 'trainer' ? teamIds : [] }),
       })
-
       const data = await res.json()
       if (!res.ok) { setError(data.error ?? 'Fehler beim Erstellen'); return }
-
       toast.success('Benutzer erstellt', `${email} wurde als ${ROLE_INFO[role]?.label ?? role} angelegt.`)
-      onCreated()
-      reset()
-    } catch {
-      setError('Benutzer konnte nicht erstellt werden.')
-    } finally {
-      setSubmitting(false)
-    }
+      onCreated(); reset()
+    } catch { setError('Benutzer konnte nicht erstellt werden.') }
+    finally { setSubmitting(false) }
   }
 
   const teamOptions = teams.map(t => ({ value: t.id, label: t.name, color: t.color }))
@@ -355,96 +230,41 @@ function CreateAdminDialog({
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle style={{ fontFamily: 'Outfit, sans-serif' }}>
-            Neuen Benutzer anlegen
-          </DialogTitle>
-          <DialogDescription>
-            Erstelle einen Admin-, Trainer- oder Funktionär-Account.
-          </DialogDescription>
+          <DialogTitle style={{ fontFamily: 'Outfit, sans-serif' }}>Neuen Benutzer anlegen</DialogTitle>
+          <DialogDescription>Erstelle einen Admin-, Trainer- oder Funktionär-Account.</DialogDescription>
         </DialogHeader>
-
         <div className="space-y-4 py-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="adminName">Name</Label>
-            <Input
-              id="adminName"
-              value={displayName}
-              onChange={e => setDisplayName(e.target.value)}
-              placeholder="z.B. Max Mustermann"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="adminEmail">E-Mail *</Label>
-            <Input
-              id="adminEmail"
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="trainer@verein.at"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="adminPassword">Passwort *</Label>
-            <Input
-              id="adminPassword"
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="Min. 8 Zeichen"
-            />
-          </div>
-
+          <div className="space-y-1.5"><Label>Name</Label><Input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="z.B. Max Mustermann" /></div>
+          <div className="space-y-1.5"><Label>E-Mail *</Label><Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="trainer@verein.at" /></div>
+          <div className="space-y-1.5"><Label>Passwort *</Label><Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Min. 8 Zeichen" /></div>
           <div className="space-y-1.5">
             <Label>Rolle *</Label>
             <Select value={role} onValueChange={setRole}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
+              <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {Object.entries(ROLE_INFO).map(([key, info]) => (
                   <SelectItem key={key} value={key}>
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full" style={{ backgroundColor: info.color }} />
-                      <span>{info.label}</span>
-                      <span className="text-xs text-gray-400 ml-1">— {info.description}</span>
+                      {info.label} <span className="text-xs text-gray-400 ml-1">— {info.description}</span>
                     </div>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
-
           {role === 'trainer' && (
             <div className="space-y-1.5">
-              <Label>Mannschaften zuweisen *</Label>
-              <MultiSelect
-                options={teamOptions}
-                value={teamIds}
-                onChange={setTeamIds}
-                placeholder="Team(s) auswählen"
-              />
-              <p className="text-xs text-gray-400">
-                Trainer sehen nur diese Mannschaften und deren Spieler/Termine.
-              </p>
+              <Label>Mannschaften *</Label>
+              <MultiSelect options={teamOptions} value={teamIds} onChange={setTeamIds} placeholder="Team(s) auswählen" />
+              <p className="text-xs text-gray-400">Trainer sehen nur diese Mannschaften.</p>
             </div>
           )}
-
-          {error && (
-            <div className="flex items-start gap-2 text-sm text-red-600 bg-red-50 p-3 rounded-md">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{error}</span>
-            </div>
-          )}
+          {error && <div className="flex items-start gap-2 text-sm text-red-600 bg-red-50 p-3 rounded-md"><AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />{error}</div>}
         </div>
-
         <DialogFooter>
           <Button variant="outline" onClick={handleClose}>Abbrechen</Button>
-          <Button variant="club" onClick={handleSubmit} disabled={submitting}>
-            {submitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-            Anlegen
-          </Button>
+          <Button variant="club" onClick={handleSubmit} disabled={submitting}>{submitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}Anlegen</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

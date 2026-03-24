@@ -29,7 +29,6 @@ export function MultiSelect({
   const [open, setOpen] = React.useState(false)
   const containerRef = React.useRef<HTMLDivElement>(null)
 
-  // Close on outside click
   React.useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -99,7 +98,13 @@ export function MultiSelect({
       </button>
 
       {open && (
-        <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-md">
+        <div
+          className="absolute z-50 mt-1 w-full rounded-md border shadow-md"
+          style={{
+            backgroundColor: 'hsl(var(--popover))',
+            borderColor: 'hsl(var(--border))',
+          }}
+        >
           <div className="p-1 max-h-60 overflow-y-auto">
             {options.length === 0 && (
               <p className="text-center text-sm text-muted-foreground py-2">
