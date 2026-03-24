@@ -24,6 +24,13 @@
     --input: 214.3 31.8% 91.4%;
     --ring: 221 100% 14%;
     --radius: 0.5rem;
+
+    /* Club theming — set dynamically by ClubThemeProvider */
+    --club-primary: #1a1a2e;
+    --club-secondary: #e94560;
+    --club-primary-text: #ffffff;
+    --club-secondary-text: #ffffff;
+    --club-primary-muted: #1a1a2e15;
   }
 }
 
@@ -36,4 +43,46 @@
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-outfit), system-ui, sans-serif;
   }
+}
+
+/*
+ * Fix: Dropdown / Select / Popover backgrounds
+ * Ensures all floating menus have a solid white background
+ * and proper z-index stacking regardless of parent context.
+ */
+@layer utilities {
+  /* Radix Select content */
+  [data-radix-popper-content-wrapper] {
+    z-index: 50 !important;
+  }
+
+  /* Ensure all popover-like elements have solid backgrounds */
+  [role="listbox"],
+  [role="menu"],
+  [data-radix-select-content],
+  [data-radix-dropdown-menu-content],
+  [data-radix-popover-content] {
+    background-color: hsl(var(--popover)) !important;
+    border: 1px solid hsl(var(--border));
+  }
+
+  /* Custom MultiSelect dropdown */
+  .multi-select-dropdown {
+    background-color: hsl(var(--popover));
+    border: 1px solid hsl(var(--border));
+  }
+}
+
+/*
+ * Club-themed button override
+ * Buttons with data-club-accent use the secondary color
+ */
+.btn-club-primary {
+  background-color: var(--club-primary) !important;
+  color: var(--club-primary-text) !important;
+}
+
+.btn-club-secondary {
+  background-color: var(--club-secondary) !important;
+  color: var(--club-secondary-text) !important;
 }

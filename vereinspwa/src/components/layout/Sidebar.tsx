@@ -25,28 +25,45 @@ const NAV_ITEMS = [
 
 interface SidebarProps {
   clubName?: string
+  logoUrl?: string | null
 }
 
-export function Sidebar({ clubName = 'Vereinsname' }: SidebarProps) {
+export function Sidebar({ clubName = 'Vereinsname', logoUrl }: SidebarProps) {
   const pathname = usePathname()
 
   return (
     <aside
       className="flex flex-col h-full w-[240px] shrink-0"
-      style={{ backgroundColor: '#1a1a2e' }}
+      style={{ backgroundColor: 'var(--club-primary, #1a1a2e)' }}
     >
       {/* Logo / Club Name */}
       <div className="px-6 py-5 border-b border-white/10">
         <div className="flex items-center gap-3">
           <div
-            className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
-            style={{ backgroundColor: '#e94560' }}
+            className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 overflow-hidden"
+            style={{ backgroundColor: 'var(--club-secondary, #e94560)' }}
           >
-            <span className="text-white font-bold text-sm">V</span>
+            {logoUrl ? (
+              <img
+                src={logoUrl}
+                alt={clubName}
+                className="w-full h-full object-contain"
+              />
+            ) : (
+              <span
+                className="font-bold text-sm"
+                style={{ color: 'var(--club-secondary-text, #ffffff)' }}
+              >
+                {clubName.charAt(0).toUpperCase()}
+              </span>
+            )}
           </div>
           <span
-            className="text-white font-semibold text-sm truncate"
-            style={{ fontFamily: 'Outfit, sans-serif' }}
+            className="font-semibold text-sm truncate"
+            style={{
+              fontFamily: 'Outfit, sans-serif',
+              color: 'var(--club-primary-text, #ffffff)',
+            }}
           >
             {clubName}
           </span>
@@ -64,13 +81,20 @@ export function Sidebar({ clubName = 'Vereinsname' }: SidebarProps) {
               className={cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors',
                 isActive
-                  ? 'text-white'
-                  : 'text-white/60 hover:text-white hover:bg-white/5'
+                  ? ''
+                  : 'hover:bg-white/5'
               )}
               style={
                 isActive
-                  ? { backgroundColor: '#e94560', borderRadius: '6px' }
-                  : { borderRadius: '6px' }
+                  ? {
+                      backgroundColor: 'var(--club-secondary, #e94560)',
+                      color: 'var(--club-secondary-text, #ffffff)',
+                      borderRadius: '6px',
+                    }
+                  : {
+                      color: 'color-mix(in srgb, var(--club-primary-text, #ffffff) 65%, transparent)',
+                      borderRadius: '6px',
+                    }
               }
             >
               <Icon className="w-4 h-4 shrink-0" />
@@ -82,7 +106,12 @@ export function Sidebar({ clubName = 'Vereinsname' }: SidebarProps) {
 
       {/* Footer */}
       <div className="px-4 py-4 border-t border-white/10">
-        <p className="text-white/30 text-xs text-center">Sprint 1</p>
+        <p
+          className="text-xs text-center"
+          style={{ color: 'color-mix(in srgb, var(--club-primary-text, #ffffff) 30%, transparent)' }}
+        >
+          Vereinsmanager
+        </p>
       </div>
     </aside>
   )

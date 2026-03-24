@@ -15,12 +15,14 @@ import { ChevronDown, LogOut, Menu, User } from 'lucide-react'
 
 interface HeaderProps {
   clubName?: string
+  logoUrl?: string | null
   userEmail?: string
   onMenuToggle?: () => void
 }
 
 export function Header({
   clubName = 'Vereinsname',
+  logoUrl,
   userEmail,
   onMenuToggle,
 }: HeaderProps) {
@@ -28,9 +30,7 @@ export function Header({
 
   async function handleLogout() {
     try {
-      // 1. Firebase client logout
       await signOut(auth)
-      // 2. Delete server-side session cookie
       await fetch('/api/auth/session', { method: 'DELETE' })
     } catch (error) {
       console.error('[Header] Logout error:', error)
@@ -49,16 +49,40 @@ export function Header({
       className="h-14 flex items-center justify-between px-4 border-b bg-white shrink-0"
       style={{ borderColor: '#e9ecef' }}
     >
-      {/* Mobile hamburger */}
-      <button
-        onClick={onMenuToggle}
-        className="md:hidden p-1.5 rounded-md text-gray-500 hover:bg-gray-100"
-        aria-label="Menü öffnen"
-      >
-        <Menu className="w-5 h-5" />
-      </button>
+      {/* Mobile hamburger + logo */}
+      <div className="flex items-center gap-3 md:hidden">
+        <button
+          onClick={onMenuToggle}
+          className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100"
+          aria-label="Menü öffnen"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+        {/* Mobile logo */}
+        <div className="flex items-center gap-2">
+          {logoUrl ? (
+            <img src={logoUrl} alt={clubName} className="w-7 h-7 rounded object-contain" />
+          ) : (
+            <div
+              className="w-7 h-7 rounded flex items-center justify-center text-xs font-bold"
+              style={{
+                backgroundColor: 'var(--club-primary, #1a1a2e)',
+                color: 'var(--club-primary-text, #ffffff)',
+              }}
+            >
+              {clubName.charAt(0)}
+            </div>
+          )}
+          <span
+            className="text-sm font-semibold text-gray-700 truncate max-w-[140px]"
+            style={{ fontFamily: 'Outfit, sans-serif' }}
+          >
+            {clubName}
+          </span>
+        </div>
+      </div>
 
-      {/* Club name – visible on desktop where sidebar shows it too, hidden on mobile */}
+      {/* Desktop club name */}
       <span
         className="hidden md:block text-sm font-semibold text-gray-700"
         style={{ fontFamily: 'Outfit, sans-serif' }}
@@ -78,8 +102,11 @@ export function Header({
             style={{ borderRadius: '6px' }}
           >
             <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-semibold"
-              style={{ backgroundColor: '#1a1a2e' }}
+              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold"
+              style={{
+                backgroundColor: 'var(--club-primary, #1a1a2e)',
+                color: 'var(--club-primary-text, #ffffff)',
+              }}
             >
               {initials}
             </div>

@@ -1,8 +1,8 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth'
-import { doc, setDoc } from 'firebase/firestore'
+import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { auth, db, storage } from '@/lib/firebase/client'
 import { CLUB_ID } from '@/lib/config'
@@ -22,9 +22,7 @@ export default function SettingsPage() {
         Einstellungen
       </h1>
 
-      {/* Quick Navigation */}
       <SettingsNav />
-
       <ClubProfileSection />
       <Separator />
       <AdminProfileSection />
@@ -36,41 +34,27 @@ export default function SettingsPage() {
   )
 }
 
-// ─── Settings Navigation ──────────────────────────────────────────────────────
 function SettingsNav() {
   const { teams } = useTeams()
-
-  const links = [
-    {
-      href: '/settings/teams',
-      label: 'Mannschaften verwalten',
-      description: `${teams.length} ${teams.length === 1 ? 'Mannschaft' : 'Mannschaften'} angelegt`,
-      icon: Users,
-    },
-  ]
-
   return (
     <div className="space-y-2">
-      {links.map(({ href, label, description, icon: Icon }) => (
-        <Link
-          key={href}
-          href={href}
-          className="flex items-center gap-4 p-4 bg-white rounded-lg border hover:shadow-sm transition-shadow group"
-          style={{ borderRadius: '8px' }}
+      <Link
+        href="/settings/teams"
+        className="flex items-center gap-4 p-4 bg-white rounded-lg border hover:shadow-sm transition-shadow group"
+        style={{ borderRadius: '8px' }}
+      >
+        <div
+          className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+          style={{ backgroundColor: 'var(--club-primary, #1a1a2e)' }}
         >
-          <div
-            className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-            style={{ backgroundColor: '#1a1a2e' }}
-          >
-            <Icon className="w-5 h-5 text-white" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-gray-900">{label}</p>
-            <p className="text-xs text-gray-400">{description}</p>
-          </div>
-          <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors" />
-        </Link>
-      ))}
+          <Users className="w-5 h-5" style={{ color: 'var(--club-primary-text, #ffffff)' }} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-gray-900">Mannschaften verwalten</p>
+          <p className="text-xs text-gray-400">{teams.length} {teams.length === 1 ? 'Mannschaft' : 'Mannschaften'} angelegt</p>
+        </div>
+        <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors" />
+      </Link>
     </div>
   )
 }
@@ -78,17 +62,41 @@ function SettingsNav() {
 function ClubProfileSection() {
   const [clubName, setClubName] = useState('')
   const [primaryColor, setPrimaryColor] = useState('#1a1a2e')
+  const [secondaryColor, setSecondaryColor] = useState('#e94560')
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Load existing values on mount
+  useEffect(() => {
+    if (!db) return
+    async function load() {
+      try {
+        const snap = await getDoc(doc(db, 'clubs', CLUB_ID))
+        if (snap.exists()) {
+          const data = snap.data()
+          setClubName(data.name || '')
+          setPrimaryColor(data.primaryColor || '#1a1a2e')
+          setSecondaryColor(data.secondaryColor || '#e94560')
+          setLogoUrl(data.logoUrl || null)
+        }
+      } finally { setLoaded(true) }
+    }
+    load()
+  }, [])
 
   async function handleSave() {
     if (!db) return
     setSaving(true)
     try {
-      await setDoc(doc(db, 'clubs', CLUB_ID), { name: clubName, primaryColor }, { merge: true })
-      document.documentElement.style.setProperty('--color-primary', primaryColor)
+      await setDoc(doc(db, 'clubs', CLUB_ID), {
+        name: clubName,
+        primaryColor,
+        secondaryColor,
+      }, { merge: true })
+      // CSS variables update automatically via ClubThemeProvider
       toast.success('Vereinsprofil gespeichert')
     } catch { toast.error('Speichern fehlgeschlagen') } finally { setSaving(false) }
   }
@@ -110,11 +118,18 @@ function ClubProfileSection() {
     } catch { toast.error('Upload fehlgeschlagen') } finally { setUploading(false) }
   }
 
+  if (!loaded) return null
+
   return (
     <section className="space-y-4">
       <h2 className="text-base font-semibold text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>Vereinsprofil</h2>
+
+      {/* Logo */}
       <div className="flex items-center gap-4">
-        <div className="w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center text-white font-bold text-xl" style={{ backgroundColor: primaryColor }}>
+        <div
+          className="w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center text-white font-bold text-xl"
+          style={{ backgroundColor: primaryColor }}
+        >
           {logoUrl ? <img src={logoUrl} alt="Logo" className="w-full h-full object-contain" /> : 'V'}
         </div>
         <div>
@@ -126,19 +141,49 @@ function ClubProfileSection() {
           <input ref={fileRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={handleLogoUpload} />
         </div>
       </div>
+
+      {/* Club name */}
       <div className="space-y-1.5">
         <Label htmlFor="clubName">Vereinsname</Label>
         <Input id="clubName" value={clubName} onChange={e => setClubName(e.target.value)} placeholder="z.B. SC Rapid Wien" />
       </div>
+
+      {/* Primary color */}
       <div className="space-y-1.5">
         <Label>Primärfarbe</Label>
         <div className="flex items-center gap-3">
           <Input type="color" value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} className="w-12 h-10 p-1 cursor-pointer" />
-          <span className="text-sm text-gray-500 font-mono">{primaryColor}</span>
-          <span className="text-xs text-gray-400">Wird als Hauptfarbe der App verwendet</span>
+          <Input value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} className="w-28 font-mono text-sm" placeholder="#1a1a2e" />
+          <span className="text-xs text-gray-400">Sidebar, Header, Hintergründe</span>
         </div>
       </div>
-      <Button onClick={handleSave} disabled={saving} style={{ backgroundColor: '#e94560' }}>
+
+      {/* Secondary color */}
+      <div className="space-y-1.5">
+        <Label>Sekundärfarbe</Label>
+        <div className="flex items-center gap-3">
+          <Input type="color" value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)} className="w-12 h-10 p-1 cursor-pointer" />
+          <Input value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)} className="w-28 font-mono text-sm" placeholder="#e94560" />
+          <span className="text-xs text-gray-400">Buttons, aktive Links, Akzente</span>
+        </div>
+      </div>
+
+      {/* Preview */}
+      <div className="p-4 rounded-lg border space-y-3" style={{ borderRadius: '8px' }}>
+        <p className="text-xs text-gray-400 font-medium">Vorschau</p>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg" style={{ backgroundColor: primaryColor }} />
+          <div className="w-10 h-10 rounded-lg" style={{ backgroundColor: secondaryColor }} />
+          <div className="flex-1">
+            <div className="flex gap-2">
+              <span className="px-3 py-1 rounded-md text-xs font-medium text-white" style={{ backgroundColor: primaryColor }}>Primär</span>
+              <span className="px-3 py-1 rounded-md text-xs font-medium text-white" style={{ backgroundColor: secondaryColor }}>Sekundär</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <Button onClick={handleSave} disabled={saving} className="btn-club-secondary">
         {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
         Speichern
       </Button>
@@ -159,8 +204,7 @@ function AdminProfileSection() {
     if (newPw !== confirmPw) { setPwError('Passwörter stimmen nicht überein'); return }
     if (newPw.length < 8) { setPwError('Mindestens 8 Zeichen'); return }
     if (!user?.email) return
-    setPwLoading(true)
-    setPwError(null)
+    setPwLoading(true); setPwError(null)
     try {
       const cred = EmailAuthProvider.credential(user.email, currentPw)
       await reauthenticateWithCredential(user, cred)
