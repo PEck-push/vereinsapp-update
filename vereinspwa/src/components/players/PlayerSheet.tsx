@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -109,15 +109,19 @@ export function PlayerSheet({ open, onClose, player, teams, onSubmit }: PlayerSh
 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
-        <SheetHeader className="mb-6">
-          <SheetTitle style={{ fontFamily: 'Outfit, sans-serif', color: '#1a1a2e' }}>
+      <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto px-5 sm:px-6">
+        <SheetHeader className="mb-5">
+          <SheetTitle style={{ fontFamily: 'Outfit, sans-serif', color: 'var(--club-primary, #1a1a2e)' }}>
             {isEdit ? 'Spieler bearbeiten' : 'Neuen Spieler anlegen'}
           </SheetTitle>
+          <SheetDescription className="text-sm text-gray-500">
+            {isEdit ? 'Änderungen werden sofort übernommen.' : 'Fülle die Felder aus und klicke auf Anlegen.'}
+          </SheetDescription>
         </SheetHeader>
 
         <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          {/* Name — stacked on mobile, side by side on wider */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="firstName">Vorname *</Label>
               <Input id="firstName" {...register('firstName')} />
@@ -139,10 +143,11 @@ export function PlayerSheet({ open, onClose, player, teams, onSubmit }: PlayerSh
 
           <div className="space-y-1.5">
             <Label htmlFor="phone">Telefon</Label>
-            <Input id="phone" type="tel" {...register('phone')} />
+            <Input id="phone" type="tel" {...register('phone')} placeholder="+43 664 ..." />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          {/* Date + Jersey — stacked on mobile */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="dateOfBirth">Geburtsdatum</Label>
               <Input id="dateOfBirth" type="date" {...register('dateOfBirth')} />
@@ -207,9 +212,10 @@ export function PlayerSheet({ open, onClose, player, teams, onSubmit }: PlayerSh
             />
           </div>
 
-          <div className="flex gap-3 pt-4 border-t">
+          {/* Action buttons — full width stacked on mobile */}
+          <div className="flex flex-col-reverse sm:flex-row gap-3 pt-4 border-t">
             <Button type="button" variant="outline" onClick={onClose} className="flex-1">Abbrechen</Button>
-            <Button type="submit" className="flex-1" disabled={isSubmitting} style={{ backgroundColor: '#e94560' }}>
+            <Button type="submit" variant="club" className="flex-1" disabled={isSubmitting}>
               {isSubmitting ? (
                 <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Speichern…</>
               ) : isEdit ? 'Speichern' : 'Anlegen'}

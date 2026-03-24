@@ -14,6 +14,7 @@ const buttonVariants = cva(
         secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
         link: 'text-primary underline-offset-4 hover:underline',
+        club: '',
       },
       size: {
         default: 'h-10 px-4 py-2',
@@ -36,12 +37,23 @@ export interface ButtonProps
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, style, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button'
+
+    // Club variant: apply CSS variable colors via style
+    const clubStyle = variant === 'club'
+      ? {
+          backgroundColor: 'var(--club-secondary, #e94560)',
+          color: 'var(--club-secondary-text, #ffffff)',
+          ...style,
+        }
+      : style
+
     return (
       <Comp
-        className={cn(buttonVariants({ variant, size, className }))}
+        className={cn(buttonVariants({ variant: variant === 'club' ? 'default' : variant, size, className }))}
         ref={ref}
+        style={clubStyle}
         {...props}
       />
     )
