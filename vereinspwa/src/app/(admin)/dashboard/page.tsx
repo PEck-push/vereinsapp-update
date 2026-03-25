@@ -9,26 +9,10 @@ import { useAdminProfile } from '@/lib/hooks/useAdminProfile'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
-  AlertCircle,
-  ArrowDownRight,
-  Bell,
-  CalendarDays,
-  Loader2,
-  MapPin,
-  ShieldAlert,
-  TrendingUp,
-  Trophy,
-  UserCheck,
-  Users,
+  AlertCircle, ArrowDownRight, Bell, CalendarDays, Loader2, MapPin,
+  ShieldAlert, TrendingUp, Trophy, UserCheck, Users,
 } from 'lucide-react'
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-  orderBy,
-  Timestamp,
-} from 'firebase/firestore'
+import { collection, getDocs, query, where, orderBy, Timestamp } from 'firebase/firestore'
 import { db } from '@/lib/firebase/client'
 import { CLUB_ID } from '@/lib/config'
 import type { ClubEvent, Player, Team } from '@/lib/types'
@@ -36,6 +20,9 @@ import type { ClubEvent, Player, Team } from '@/lib/types'
 function toDate(d: unknown): Date {
   if (d instanceof Timestamp) return d.toDate()
   if (d instanceof Date) return d
+  if (d && typeof d === 'object' && 'seconds' in d) {
+    return new Date((d as { seconds: number }).seconds * 1000)
+  }
   return new Date(d as string)
 }
 
@@ -50,6 +37,12 @@ function getMonday(d: Date): Date {
 
 function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
+
+function startOfDay(d: Date): Date {
+  const r = new Date(d)
+  r.setHours(0, 0, 0, 0)
+  return r
 }
 
 const WEEKDAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
@@ -80,37 +73,62 @@ export default function DashboardPage() {
 
   const myTeams = useMemo(() => isAllTeams ? teams : teams.filter(t => myTeamIds.includes(t.id)), [teams, myTeamIds, isAllTeams])
 
+  // Count ALL players (including those without teamIds) for admin/secretary
   const myPlayers = useMemo(
-    () => players.filter(p => p.status !== 'inactive' && (isAllTeams || p.teamIds.some(id => myTeamIds.includes(id)))),
+    () => players.filter(p => {
+      if (p.status === 'inactive') return false
+      if (isAllTeams) return true
+      return p.teamIds && p.teamIds.some(id => myTeamIds.includes(id))
+    }),
     [players, myTeamIds, isAllTeams]
   )
 
-  const now = new Date()
+  const teamMap = useMemo(() => new Map(teams.map(t => [t.id, t])), [teams])
 
+  // FIX: Use start of today for comparison so today's events ALWAYS show
+  const todayStart = useMemo(() => startOfDay(new Date()), [])
+
+  // All events relevant to this user's teams (no date filter)
+  const myEvents = useMemo(() => {
+    return events.filter(e => isAllTeams || e.teamIds.some(id => myTeamIds.includes(id)))
+  }, [events, myTeamIds, isAllTeams])
+
+  // Upcoming events: from today onwards (including all of today), next 14 days
   const myUpcomingEvents = useMemo(() => {
-    const twoWeeksLater = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)
-    return events
+    const twoWeeksLater = new Date(todayStart.getTime() + 14 * 24 * 60 * 60 * 1000)
+    return myEvents
       .filter(e => {
         const d = toDate(e.startDate)
-        if (d < now || d > twoWeeksLater) return false
-        return isAllTeams || e.teamIds.some(id => myTeamIds.includes(id))
+        return d >= todayStart && d <= twoWeeksLater
       })
       .sort((a, b) => toDate(a.startDate).getTime() - toDate(b.startDate).getTime())
-  }, [events, now, myTeamIds, isAllTeams])
+  }, [myEvents, todayStart])
+
+  // This week's events (for week strip) — use ALL events, not just upcoming
+  const thisWeekEvents = useMemo(() => {
+    const monday = getMonday(new Date())
+    const sunday = new Date(monday)
+    sunday.setDate(sunday.getDate() + 6)
+    sunday.setHours(23, 59, 59, 999)
+    return myEvents.filter(e => {
+      const d = toDate(e.startDate)
+      return d >= monday && d <= sunday
+    })
+  }, [myEvents])
 
   const eventPlayerCounts = useMemo(() => {
     const counts: Record<string, number> = {}
     for (const event of myUpcomingEvents) {
-      counts[event.id] = myPlayers.filter(p => p.teamIds.some(id => event.teamIds.includes(id))).length
+      counts[event.id] = myPlayers.filter(p => p.teamIds && p.teamIds.some(id => event.teamIds.includes(id))).length
     }
     return counts
   }, [myUpcomingEvents, myPlayers])
 
-  const teamMap = useMemo(() => new Map(teams.map(t => [t.id, t])), [teams])
   const injuredCount = myPlayers.filter(p => p.status === 'injured').length
-  const noAccountCount = myPlayers.filter(p => p.accountStatus === 'invited' || !p.accountStatus).length
+  // FIX: Only count as "no access" if accountStatus is explicitly 'invited' — don't count missing field
+  const noAccountCount = myPlayers.filter(p => p.accountStatus === 'invited').length
 
-  const hour = now.getHours()
+  const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Guten Morgen' : hour < 18 ? 'Guten Tag' : 'Guten Abend'
 
   if (loading) return <DashboardSkeleton />
@@ -119,16 +137,14 @@ export default function DashboardPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-semibold text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>
-          {greeting}
-        </h1>
+        <h1 className="text-2xl font-semibold text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>{greeting}</h1>
         <p className="text-sm text-gray-500 mt-0.5">
-          {now.toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          {new Date().toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
           {!isAllTeams && myTeams.length > 0 && <span className="ml-2">· {myTeams.map(t => t.name).join(', ')}</span>}
         </p>
       </div>
 
-      {/* Zone 1: Nächste Termine (TOP) */}
+      {/* Zone 1: Nächste Termine */}
       <div className="bg-white rounded-lg border p-5" style={{ borderRadius: '8px' }}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-gray-700" style={{ fontFamily: 'Outfit, sans-serif' }}>Kommende Termine</h2>
@@ -138,6 +154,7 @@ export default function DashboardPage() {
           <div className="text-center py-10 text-gray-400">
             <CalendarDays className="w-7 h-7 mx-auto mb-2 opacity-40" />
             <p className="text-sm">Keine Termine in den nächsten 2 Wochen</p>
+            <p className="text-xs text-gray-300 mt-1">{events.length} Termine insgesamt geladen · {myEvents.length} für deine Teams</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -154,12 +171,12 @@ export default function DashboardPage() {
           <h2 className="text-sm font-semibold text-gray-700" style={{ fontFamily: 'Outfit, sans-serif' }}>Diese Woche</h2>
           <Link href="/calendar" className="text-xs text-gray-400 hover:text-gray-700">Kalender öffnen</Link>
         </div>
-        <WeekStrip events={myUpcomingEvents} teamMap={teamMap} />
+        <WeekStrip events={thisWeekEvents} teamMap={teamMap} />
       </div>
 
       {/* Zone 3: Quick Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Aktive Spieler" value={myPlayers.length} icon={Users} color="#1a1a2e" />
+        <StatCard label="Aktive Spieler" value={myPlayers.length} icon={Users} color="var(--club-primary, #1a1a2e)" />
         <StatCard label="Mannschaften" value={myTeams.length} icon={UserCheck} color="#0F6E56" />
         <StatCard label="Verletzt" value={injuredCount} icon={ShieldAlert} color={injuredCount > 0 ? '#DC2626' : '#6B7280'} alert={injuredCount > 0} />
         <StatCard label="Ohne App-Zugang" value={noAccountCount} icon={AlertCircle} color={noAccountCount > 0 ? '#F59E0B' : '#6B7280'} alert={noAccountCount > 0} href="/players" />
@@ -192,7 +209,7 @@ function StatCard({ label, value, icon: Icon, color, alert, href }: {
         </div>
         {alert && <span className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: color }} />}
       </div>
-      <p className="text-2xl font-bold" style={{ fontFamily: 'Outfit, sans-serif', color: '#1a1a2e' }}>{value}</p>
+      <p className="text-2xl font-bold" style={{ fontFamily: 'Outfit, sans-serif', color: 'var(--club-primary, #1a1a2e)' }}>{value}</p>
       <p className="text-xs text-gray-500 mt-0.5">{label}</p>
     </div>
   )
@@ -209,7 +226,8 @@ function EventRow({ event, totalPlayers, teamMap }: { event: ClubEvent; totalPla
   const firstTeam = event.teamIds.length > 0 ? teamMap.get(event.teamIds[0]) : null
   const teamColor = firstTeam?.color ?? '#F59E0B'
   const TYPE_LABELS: Record<string, string> = { training: 'Training', match: 'Spiel', meeting: 'Meeting', other: 'Termin' }
-  const isToday = isSameDay(date, new Date())
+  const today = new Date()
+  const isToday = isSameDay(date, today)
   const isTomorrow = isSameDay(date, new Date(Date.now() + 86400000))
   const dayLabel = isToday ? 'Heute' : isTomorrow ? 'Morgen' : date.toLocaleDateString('de-AT', { weekday: 'short', day: 'numeric', month: 'short' })
 
@@ -309,7 +327,7 @@ function TrainingLeaderboard({ players, myTeamIds, isAllTeams }: { players: Play
         }))
 
         const playerStats: PlayerAttendance[] = players.map(player => {
-          const relevantEvents = allEvents.filter(e => e.teamIds.some(tid => player.teamIds.includes(tid)))
+          const relevantEvents = allEvents.filter(e => e.teamIds.some(tid => player.teamIds?.includes(tid)))
           const total = relevantEvents.length
           let attended = 0, noResponse = 0
           for (const event of relevantEvents) {
@@ -338,10 +356,7 @@ function TrainingLeaderboard({ players, myTeamIds, isAllTeams }: { players: Play
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div className="bg-white rounded-lg border p-5" style={{ borderRadius: '8px' }}>
-        <div className="flex items-center gap-2 mb-1">
-          <Trophy className="w-4 h-4 text-amber-500" />
-          <h2 className="text-sm font-semibold text-gray-700" style={{ fontFamily: 'Outfit, sans-serif' }}>Trainingskaiser</h2>
-        </div>
+        <div className="flex items-center gap-2 mb-1"><Trophy className="w-4 h-4 text-amber-500" /><h2 className="text-sm font-semibold text-gray-700" style={{ fontFamily: 'Outfit, sans-serif' }}>Trainingskaiser</h2></div>
         <p className="text-xs text-gray-400 mb-4">{season.label} · höchste Beteiligung</p>
         <div className="space-y-3">
           {top3.map((s, i) => (
@@ -360,10 +375,7 @@ function TrainingLeaderboard({ players, myTeamIds, isAllTeams }: { players: Play
       </div>
 
       <div className="bg-white rounded-lg border p-5" style={{ borderRadius: '8px' }}>
-        <div className="flex items-center gap-2 mb-1">
-          <ArrowDownRight className="w-4 h-4 text-red-400" />
-          <h2 className="text-sm font-semibold text-gray-700" style={{ fontFamily: 'Outfit, sans-serif' }}>Trainingsmuffel</h2>
-        </div>
+        <div className="flex items-center gap-2 mb-1"><ArrowDownRight className="w-4 h-4 text-red-400" /><h2 className="text-sm font-semibold text-gray-700" style={{ fontFamily: 'Outfit, sans-serif' }}>Trainingsmuffel</h2></div>
         <p className="text-xs text-gray-400 mb-4">{season.label} · niedrigste Beteiligung</p>
         {bottom3.length === 0 ? (
           <div className="text-center py-6 text-gray-400"><p className="text-xs">Zu wenig Daten (min. 3 Trainings nötig)</p></div>
