@@ -66,10 +66,13 @@ export default function DashboardPage() {
 
   const loading = playersLoading || teamsLoading || eventsLoading || adminState.status === 'loading'
 
+// FALLBACK: If profile couldn't be loaded (no adminUsers doc), show everything
+  const effectiveIsAllTeams = isAllTeams || !profile
+
   const myTeamIds = useMemo(() => {
-    if (isAllTeams) return teams.map(t => t.id)
+    if (effectiveIsAllTeams) return teams.map(t => t.id)
     return profile?.teamIds ?? []
-  }, [isAllTeams, profile, teams])
+  }, [effectiveIsAllTeams, profile, teams])
 
   const myTeams = useMemo(() => isAllTeams ? teams : teams.filter(t => myTeamIds.includes(t.id)), [teams, myTeamIds, isAllTeams])
 
