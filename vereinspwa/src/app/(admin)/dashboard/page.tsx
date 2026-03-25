@@ -74,13 +74,13 @@ export default function DashboardPage() {
     return profile?.teamIds ?? []
   }, [effectiveIsAllTeams, profile, teams])
 
-  const myTeams = useMemo(() => isAllTeams ? teams : teams.filter(t => myTeamIds.includes(t.id)), [teams, myTeamIds, isAllTeams])
+  const myTeams = useMemo(() => effectiveIsAllTeams ? teams : teams.filter(t => myTeamIds.includes(t.id)), [teams, myTeamIds, isAllTeams])
 
   // Count ALL players (including those without teamIds) for admin/secretary
   const myPlayers = useMemo(
     () => players.filter(p => {
       if (p.status === 'inactive') return false
-      if (isAllTeams) return true
+      if (effectiveIsAllTeams) return true
       return p.teamIds && p.teamIds.some(id => myTeamIds.includes(id))
     }),
     [players, myTeamIds, isAllTeams]
@@ -93,7 +93,7 @@ export default function DashboardPage() {
 
   // All events relevant to this user's teams (no date filter)
   const myEvents = useMemo(() => {
-    return events.filter(e => isAllTeams || e.teamIds.some(id => myTeamIds.includes(id)))
+    return events.filter(e => effectiveIsAllTeams || e.teamIds.some(id => myTeamIds.includes(id)))
   }, [events, myTeamIds, isAllTeams])
 
   // Upcoming events: from today onwards (including all of today), next 14 days
@@ -143,7 +143,7 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-semibold text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>{greeting}</h1>
         <p className="text-sm text-gray-500 mt-0.5">
           {new Date().toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-          {!isAllTeams && myTeams.length > 0 && <span className="ml-2">· {myTeams.map(t => t.name).join(', ')}</span>}
+          {!effectiveIsAllTeams && myTeams.length > 0 && <span className="ml-2">· {myTeams.map(t => t.name).join(', ')}</span>}
         </p>
       </div>
 
