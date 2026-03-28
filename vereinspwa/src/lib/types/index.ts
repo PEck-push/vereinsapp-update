@@ -20,6 +20,8 @@ export interface Team {
   name: string
   category: 'senior' | 'youth' | 'ladies' | 'other'
   color: string
+  /** Telegram group chat ID (set via /setup command in the group) */
+  telegramGroupId?: number
   createdAt: Date
 }
 
@@ -41,6 +43,9 @@ export interface Player {
   inviteTokenUsed: boolean
   accountStatus: 'invited' | 'active' | 'deactivated'
   uid?: string
+  /** Telegram user ID (linked via phone number matching) */
+  telegramUserId?: number
+  telegramUsername?: string
   notificationPrefs: { push: boolean; email: boolean }
   fcmTokens: string[]
   createdAt: Date
@@ -119,6 +124,9 @@ export interface ClubEvent {
    * Only stored on the first event of the series (the "template").
    */
   recurrenceRule?: RecurrenceRule
+
+  /** Telegram message references for live-updating event posts */
+  telegramMessages?: Record<string, { messageId: number; chatId: number }>
 
   createdBy: string
   createdAt: Date

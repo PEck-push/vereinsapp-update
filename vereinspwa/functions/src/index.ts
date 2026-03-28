@@ -1,6 +1,7 @@
 import * as admin from 'firebase-admin'
 import { onSchedule } from 'firebase-functions/v2/scheduler'
 import { onDocumentUpdated } from 'firebase-functions/v2/firestore'
+import { onRequest } from 'firebase-functions/v2/https'
 import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore'
 import { getMessaging } from 'firebase-admin/messaging'
 
@@ -22,10 +23,6 @@ function formatDateShort(date: Date): string {
   return date.toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Vienna' })
 }
 
-/**
- * Send push to all FCM tokens of given playerIds.
- * Automatically removes invalid tokens from Firestore.
- */
 async function sendPushToPlayers(
   clubId: string,
   playerIds: string[],
@@ -42,12 +39,9 @@ async function sendPushToPlayers(
   for (let i = 0; i < playerIds.length; i += BATCH) {
     const batch = playerIds.slice(i, i + BATCH)
     const snap = await db
-      .collection('clubs')
-      .doc(clubId)
-      .collection('players')
+      .collection('clubs').doc(clubId).collection('players')
       .where(admin.firestore.FieldPath.documentId(), 'in', batch)
       .get()
-
     for (const d of snap.docs) {
       const tokens: string[] = d.data().fcmTokens ?? []
       tokens.forEach(t => allTokens.push({ token: t, playerId: d.id }))
@@ -80,7 +74,6 @@ async function sendPushToPlayers(
     })
   }
 
-  // Cleanup invalid tokens
   if (invalidTokens.length > 0) {
     await Promise.allSettled(
       invalidTokens.map(({ token, playerId }) =>
@@ -94,9 +87,6 @@ async function sendPushToPlayers(
   return { sent, failed }
 }
 
-/**
- * Get player IDs for a list of teamIds who haven't responded to an event.
- */
 async function getPendingPlayerIds(clubId: string, eventId: string, teamIds: string[]): Promise<string[]> {
   if (teamIds.length === 0) return []
 
@@ -106,24 +96,16 @@ async function getPendingPlayerIds(clubId: string, eventId: string, teamIds: str
   for (let i = 0; i < teamIds.length; i += BATCH) {
     const batch = teamIds.slice(i, i + BATCH)
     const snap = await db
-      .collection('clubs')
-      .doc(clubId)
-      .collection('players')
+      .collection('clubs').doc(clubId).collection('players')
       .where('teamIds', 'array-contains-any', batch)
       .where('accountStatus', '==', 'active')
       .get()
     snap.docs.forEach(d => playerIds.add(d.id))
   }
 
-  // Remove players who already responded
   const responsesSnap = await db
-    .collection('clubs')
-    .doc(clubId)
-    .collection('events')
-    .doc(eventId)
-    .collection('responses')
+    .collection('clubs').doc(clubId).collection('events').doc(eventId).collection('responses')
     .get()
-
   responsesSnap.docs.forEach(d => playerIds.delete(d.id))
 
   return Array.from(playerIds)
@@ -132,28 +114,18 @@ async function getPendingPlayerIds(clubId: string, eventId: string, teamIds: str
 // ─── Function 1: Daily 08:00 – 24h reminder ──────────────────────────────────
 
 export const dailyEventReminder = onSchedule(
-  {
-    schedule: '0 8 * * *',       // Daily at 08:00
-    timeZone: 'Europe/Vienna',
-    region: 'europe-west1',
-  },
+  { schedule: '0 8 * * *', timeZone: 'Europe/Vienna', region: 'europe-west1' },
   async () => {
     const now = new Date()
     const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-    // ±30 min window
     const windowStart = new Date(in24h.getTime() - 30 * 60 * 1000)
     const windowEnd = new Date(in24h.getTime() + 30 * 60 * 1000)
 
-    // Query all clubs (in production, add pagination for >100 clubs)
     const clubsSnap = await db.collection('clubs').get()
-
     for (const clubDoc of clubsSnap.docs) {
       const clubId = clubDoc.id
-
       const eventsSnap = await db
-        .collection('clubs')
-        .doc(clubId)
-        .collection('events')
+        .collection('clubs').doc(clubId).collection('events')
         .where('startDate', '>=', Timestamp.fromDate(windowStart))
         .where('startDate', '<=', Timestamp.fromDate(windowEnd))
         .get()
@@ -162,15 +134,8 @@ export const dailyEventReminder = onSchedule(
         const event = eventDoc.data()
         const startDate = (event.startDate as Timestamp).toDate()
         const pendingPlayerIds = await getPendingPlayerIds(clubId, eventDoc.id, event.teamIds ?? [])
-
         if (pendingPlayerIds.length > 0) {
-          await sendPushToPlayers(
-            clubId,
-            pendingPlayerIds,
-            `Erinnerung: ${event.title}`,
-            `Morgen um ${formatTime(startDate)} – Kannst du kommen?`,
-            '/mein-bereich'
-          )
+          await sendPushToPlayers(clubId, pendingPlayerIds, `Erinnerung: ${event.title}`, `Morgen um ${formatTime(startDate)} – Kannst du kommen?`, '/mein-bereich')
         }
       }
     }
@@ -180,11 +145,7 @@ export const dailyEventReminder = onSchedule(
 // ─── Function 2: Hourly – 2h reminder ───────────────────────────────────────
 
 export const hourlyEventReminder = onSchedule(
-  {
-    schedule: '0 * * * *',       // Every hour on the hour
-    timeZone: 'Europe/Vienna',
-    region: 'europe-west1',
-  },
+  { schedule: '0 * * * *', timeZone: 'Europe/Vienna', region: 'europe-west1' },
   async () => {
     const now = new Date()
     const in2h = new Date(now.getTime() + 2 * 60 * 60 * 1000)
@@ -192,14 +153,10 @@ export const hourlyEventReminder = onSchedule(
     const windowEnd = new Date(in2h.getTime() + 30 * 60 * 1000)
 
     const clubsSnap = await db.collection('clubs').get()
-
     for (const clubDoc of clubsSnap.docs) {
       const clubId = clubDoc.id
-
       const eventsSnap = await db
-        .collection('clubs')
-        .doc(clubId)
-        .collection('events')
+        .collection('clubs').doc(clubId).collection('events')
         .where('startDate', '>=', Timestamp.fromDate(windowStart))
         .where('startDate', '<=', Timestamp.fromDate(windowEnd))
         .where('reminders2hSent', '!=', true)
@@ -209,18 +166,9 @@ export const hourlyEventReminder = onSchedule(
         const event = eventDoc.data()
         const startDate = (event.startDate as Timestamp).toDate()
         const pendingPlayerIds = await getPendingPlayerIds(clubId, eventDoc.id, event.teamIds ?? [])
-
         if (pendingPlayerIds.length > 0) {
-          await sendPushToPlayers(
-            clubId,
-            pendingPlayerIds,
-            `Heute um ${formatTime(startDate)}: ${event.title}`,
-            `Bist du dabei? Jetzt zu- oder absagen.`,
-            '/mein-bereich'
-          )
+          await sendPushToPlayers(clubId, pendingPlayerIds, `Heute um ${formatTime(startDate)}: ${event.title}`, `Bist du dabei? Jetzt zu- oder absagen.`, '/mein-bereich')
         }
-
-        // Mark as reminded regardless of pending count (avoid re-sending)
         await eventDoc.ref.update({ reminders2hSent: true })
       }
     }
@@ -230,33 +178,23 @@ export const hourlyEventReminder = onSchedule(
 // ─── Function 3: Firestore trigger – event cancelled ─────────────────────────
 
 export const onEventCancelled = onDocumentUpdated(
-  {
-    document: 'clubs/{clubId}/events/{eventId}',
-    region: 'europe-west1',
-  },
+  { document: 'clubs/{clubId}/events/{eventId}', region: 'europe-west1' },
   async (event) => {
     const before = event.data?.before.data()
     const after = event.data?.after.data()
-
     if (!before || !after) return
-
-    // Only trigger if status changed from 'scheduled' to 'cancelled'
     if (before.status === 'cancelled' || after.status !== 'cancelled') return
 
     const clubId = event.params.clubId
     const teamIds: string[] = after.teamIds ?? []
     const cancelReason: string = after.cancelReason ?? ''
 
-    // Get all active players in the affected teams
     const BATCH = 10
     const playerIds = new Set<string>()
-
     for (let i = 0; i < teamIds.length; i += BATCH) {
       const batch = teamIds.slice(i, i + BATCH)
       const snap = await db
-        .collection('clubs')
-        .doc(clubId)
-        .collection('players')
+        .collection('clubs').doc(clubId).collection('players')
         .where('teamIds', 'array-contains-any', batch)
         .where('accountStatus', '==', 'active')
         .get()
@@ -264,10 +202,60 @@ export const onEventCancelled = onDocumentUpdated(
     }
 
     if (playerIds.size === 0) return
-
     const title = `❌ Abgesagt: ${after.title}`
     const body = cancelReason ? cancelReason : `${formatDateShort((after.startDate as Timestamp).toDate())} wurde abgesagt.`
-
     await sendPushToPlayers(clubId, Array.from(playerIds), title, body, '/mein-bereich')
+  }
+)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── TELEGRAM BOT ─────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import { handleWebhook } from './telegram/webhook'
+import { runWeeklyDigest } from './telegram/weeklyPost'
+
+/**
+ * Telegram Webhook Endpoint.
+ *
+ * After deploying, register the webhook with Telegram:
+ * curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=<FUNCTION_URL>"
+ *
+ * Required env vars:
+ * - TELEGRAM_BOT_TOKEN
+ * - TELEGRAM_BOT_USERNAME (without @)
+ * - CLUB_ID (or NEXT_PUBLIC_CLUB_ID)
+ */
+export const telegramWebhook = onRequest(
+  { region: 'europe-west1', maxInstances: 10 },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).send('Method Not Allowed')
+      return
+    }
+
+    try {
+      await handleWebhook(req.body)
+      res.status(200).send('ok')
+    } catch (err) {
+      console.error('[telegramWebhook] Unhandled error:', err)
+      // Always return 200 to Telegram — otherwise it retries
+      res.status(200).send('ok')
+    }
+  }
+)
+
+/**
+ * Weekly Telegram Digest — Monday 08:00 Vienna time.
+ * Posts event summaries with response buttons to all linked team groups.
+ */
+export const weeklyTelegramDigest = onSchedule(
+  {
+    schedule: '0 8 * * 1', // Monday 08:00
+    timeZone: 'Europe/Vienna',
+    region: 'europe-west1',
+  },
+  async () => {
+    await runWeeklyDigest()
   }
 )
