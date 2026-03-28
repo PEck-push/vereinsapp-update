@@ -6,6 +6,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { auth, db } from '@/lib/firebase/client'
 import { CLUB_ID } from '@/lib/config'
 import { useTeams } from '@/lib/hooks/useTeams'
+import { SeedSettingsSection } from '@/components/layout/SeedModeBanner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -26,6 +27,8 @@ export default function SettingsPage() {
       <CalendarSubscriptionsSection />
       <Separator />
       <SeasonSection />
+      <Separator />
+      <SeedSettingsSection />
     </div>
   )
 }
@@ -163,7 +166,7 @@ function AdminProfileSection() {
   )
 }
 
-// ─── Kalender-Abonnements (updated with token auth) ──────────────────────────
+// ─── Kalender-Abonnements ────────────────────────────────────────────────────
 
 function CalendarSubscriptionsSection() {
   const { teams } = useTeams()
@@ -244,7 +247,6 @@ function CalendarSubscriptionsSection() {
         </div>
       ) : (
         <div className="space-y-3">
-          {/* Alle Termine */}
           <CalendarLinkRow
             label="Alle Termine"
             httpsUrl={buildUrl()}
@@ -254,7 +256,6 @@ function CalendarSubscriptionsSection() {
             onCopy={() => copy(buildUrl(), 'all')}
           />
 
-          {/* Pro Team */}
           {teams.map(team => (
             <CalendarLinkRow
               key={team.id}
@@ -268,7 +269,6 @@ function CalendarSubscriptionsSection() {
             />
           ))}
 
-          {/* Regenerate */}
           <div className="pt-2 border-t">
             <Button variant="ghost" size="sm" onClick={generateToken} disabled={generating} className="text-xs text-gray-500">
               {generating ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1" />}
