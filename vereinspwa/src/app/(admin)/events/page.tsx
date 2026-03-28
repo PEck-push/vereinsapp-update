@@ -11,17 +11,23 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { CalendarDays, ChevronDown, ChevronUp, Loader2, MapPin, MoreHorizontal, Plus, Search, Trash2, Users, XCircle } from 'lucide-react'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { CalendarDays, ChevronDown, ChevronUp, Loader2, MapPin, MoreHorizontal, Plus, Repeat, Search, Trash2, Users, XCircle } from 'lucide-react'
 import { Timestamp } from 'firebase/firestore'
-import type { ClubEvent } from '@/lib/types'
+import type { ClubEvent, RecurrenceFrequency } from '@/lib/types'
 
-const TYPE_LABELS: Record<string, string> = { training: 'Training', match: 'Spiel', meeting: 'Besprechung', other: 'Termin' }
+const TYPE_LABELS: Record<string, string> = {
+  training: 'Training',
+  match: 'Spiel',
+  meeting: 'Besprechung',
+  event: 'Vereins-Event',
+  other: 'Termin',
+}
 function toDate(d: unknown): Date { if (d instanceof Timestamp) return d.toDate(); if (d instanceof Date) return d; return new Date(d as string) }
 type ViewMode = 'upcoming' | 'past' | 'all'
 
 export default function EventsPage() {
-  const { events, loading, addEvent, updateEvent, deleteEvent } = useEvents()
+  const { events, loading, addEvent, updateEvent, deleteEvent, deleteRecurringSeries } = useEvents()
   const { teams } = useTeams()
   const { players } = usePlayers()
 
@@ -36,6 +42,7 @@ export default function EventsPage() {
   const [cancelTarget, setCancelTarget] = useState<ClubEvent | null>(null)
   const [cancelReason, setCancelReason] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<ClubEvent | null>(null)
+  const [deleteSeriesTarget, setDeleteSeriesTarget] = useState<ClubEvent | null>(null)
 
   const now = new Date()
   const teamMap = useMemo(() => new Map(teams.map(t => [t.id, t])), [teams])
@@ -44,7 +51,7 @@ export default function EventsPage() {
     const q = search.toLowerCase()
     return events.filter(e => {
       const matchSearch = !q || e.title.toLowerCase().includes(q)
-      const matchTeam = filterTeam === 'all' || e.teamIds.includes(filterTeam)
+      const matchTeam = filterTeam === 'all' || e.teamIds.includes(filterTeam) || (filterTeam === 'club-events' && e.teamIds.length === 0)
       const matchType = filterType === 'all' || e.type === filterType
       const eventDate = toDate(e.startDate)
       const matchView = viewMode === 'all' || (viewMode === 'upcoming' && eventDate >= now) || (viewMode === 'past' && eventDate < now)
@@ -55,9 +62,12 @@ export default function EventsPage() {
   function openCreate() { setEditingEvent(null); setSheetOpen(true) }
   function openEdit(event: ClubEvent) { setEditingEvent(event); setSheetOpen(true) }
 
-  async function handleSheetSubmit(data: Omit<ClubEvent, 'id' | 'clubId' | 'responseCount' | 'createdAt' | 'updatedAt'>) {
+  async function handleSheetSubmit(
+    data: Omit<ClubEvent, 'id' | 'clubId' | 'responseCount' | 'createdAt' | 'updatedAt'>,
+    recurrence?: { frequency: RecurrenceFrequency; daysOfWeek: number[]; until: Date }
+  ) {
     if (editingEvent) await updateEvent(editingEvent.id, data)
-    else await addEvent(data)
+    else await addEvent(data, recurrence)
   }
 
   async function handleCancel() {
@@ -68,7 +78,16 @@ export default function EventsPage() {
 
   async function handleDelete() { if (!deleteTarget) return; await deleteEvent(deleteTarget.id); setDeleteTarget(null) }
 
-  function getTeamNames(teamIds: string[]): string { return teamIds.map(id => teams.find(t => t.id === id)?.name).filter(Boolean).join(', ') || '–' }
+  async function handleDeleteSeries() {
+    if (!deleteSeriesTarget?.recurrenceGroupId) return
+    await deleteRecurringSeries(deleteSeriesTarget.recurrenceGroupId, new Date())
+    setDeleteSeriesTarget(null)
+  }
+
+  function getTeamNames(teamIds: string[]): string {
+    if (teamIds.length === 0) return 'Vereins-Event'
+    return teamIds.map(id => teams.find(t => t.id === id)?.name).filter(Boolean).join(', ') || '–'
+  }
 
   return (
     <div>
@@ -87,6 +106,7 @@ export default function EventsPage() {
           <SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="Alle Teams" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Alle Teams</SelectItem>
+            <SelectItem value="club-events">Vereins-Events</SelectItem>
             {teams.map(t => <SelectItem key={t.id} value={t.id}><span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: t.color }} />{t.name}</span></SelectItem>)}
           </SelectContent>
         </Select>
@@ -116,19 +136,23 @@ export default function EventsPage() {
             const isExpanded = expandedId === event.id
             const firstTeam = event.teamIds.length > 0 ? teamMap.get(event.teamIds[0]) : null
             const teamColor = firstTeam?.color ?? '#F59E0B'
-            const eventPlayers = players.filter(p => p.teamIds.some(id => event.teamIds.includes(id)) && p.status !== 'inactive')
+            const eventPlayers = event.teamIds.length > 0
+              ? players.filter(p => p.teamIds.some(id => event.teamIds.includes(id)) && p.status !== 'inactive')
+              : players.filter(p => p.status !== 'inactive') // Vereins-Event: alle Spieler
+            const isRecurring = !!event.recurrenceGroupId
 
             return (
               <div key={event.id} className={`bg-white rounded-lg border overflow-hidden ${isPast ? 'opacity-70' : ''}`} style={{ borderRadius: '8px' }}>
                 <div className="flex">
-                  {/* Color bar */}
                   <div className="w-1.5 shrink-0" style={{ backgroundColor: teamColor }} />
-
                   <div className="flex-1 p-4 min-w-0">
-                    {/* Row 1: Type + Title + Actions */}
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
-                        <span className="text-xs text-gray-400">{TYPE_LABELS[event.type] ?? 'Termin'}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-400">{TYPE_LABELS[event.type] ?? 'Termin'}</span>
+                          {isRecurring && <span className="text-[10px] text-blue-500 flex items-center gap-0.5"><Repeat className="w-3 h-3" />Serie</span>}
+                          {event.status === 'cancelled' && <Badge variant="destructive" className="text-[10px]">Abgesagt</Badge>}
+                        </div>
                         <p className="font-medium text-gray-900 text-sm mt-0.5">{event.title}</p>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
@@ -140,20 +164,24 @@ export default function EventsPage() {
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => openEdit(event)}>Bearbeiten</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => setCancelTarget(event)} className="text-orange-600"><XCircle className="w-4 h-4 mr-2" />Absagen</DropdownMenuItem>
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem onClick={() => setDeleteTarget(event)} className="text-red-600"><Trash2 className="w-4 h-4 mr-2" />Löschen</DropdownMenuItem>
+                            {isRecurring && (
+                              <DropdownMenuItem onClick={() => setDeleteSeriesTarget(event)} className="text-red-600">
+                                <Repeat className="w-4 h-4 mr-2" />Zukünftige der Serie löschen
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
                     </div>
 
-                    {/* Row 2: Details (stacked on mobile) */}
                     <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 mt-1.5 text-xs text-gray-500">
                       <span>{date.toLocaleDateString('de-AT', { weekday: 'short', day: 'numeric', month: 'short' })} · {date.toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })} Uhr</span>
                       {event.location && <span className="flex items-center gap-0.5"><MapPin className="w-3 h-3" />{event.location}</span>}
                       <span className="flex items-center gap-0.5"><Users className="w-3 h-3" />{getTeamNames(event.teamIds)}</span>
                     </div>
 
-                    {/* Row 3: Response badges */}
                     <div className="flex items-center gap-2 mt-2.5">
                       <Badge variant="success" className="text-xs">{event.responseCount?.accepted ?? 0} zugesagt</Badge>
                       <Badge variant="destructive" className="text-xs bg-red-100 text-red-700 border-0">{event.responseCount?.declined ?? 0} abgesagt</Badge>
@@ -175,6 +203,7 @@ export default function EventsPage() {
 
       <EventSheet open={sheetOpen} onClose={() => setSheetOpen(false)} event={editingEvent} teams={teams} onSubmit={handleSheetSubmit} />
 
+      {/* Cancel Dialog */}
       <Dialog open={!!cancelTarget} onOpenChange={(o) => !o && setCancelTarget(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader><DialogTitle>Termin absagen?</DialogTitle></DialogHeader>
@@ -187,6 +216,7 @@ export default function EventsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Delete single event */}
       <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader><DialogTitle>Termin löschen?</DialogTitle></DialogHeader>
@@ -194,6 +224,21 @@ export default function EventsPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>Abbrechen</Button>
             <Button variant="destructive" onClick={handleDelete}>Löschen</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete future series events */}
+      <Dialog open={!!deleteSeriesTarget} onOpenChange={(o) => !o && setDeleteSeriesTarget(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Serie löschen?</DialogTitle></DialogHeader>
+          <p className="text-sm text-gray-600">
+            Alle <strong>zukünftigen</strong> Termine der Serie <strong>{deleteSeriesTarget?.title}</strong> werden gelöscht.
+            Vergangene Termine und bereits gegebene Antworten bleiben erhalten.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteSeriesTarget(null)}>Abbrechen</Button>
+            <Button variant="destructive" onClick={handleDeleteSeries}>Zukünftige löschen</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

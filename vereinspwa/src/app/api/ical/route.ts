@@ -1,16 +1,20 @@
 /**
- * GET /api/ical?clubId=xxx&teamId=yyy (optional teamId)
+ * GET /api/ical?clubId=xxx&teamId=yyy&token=zzz
  *
  * Returns an iCal (.ics) feed conforming to RFC 5545.
- * No auth required so external calendar apps can subscribe.
- * Club/team data is public by design for calendar use – no personal player data exposed.
+ *
+ * SECURITY: Requires a valid `token` parameter that matches the
+ * club's `settings.icalToken` in Firestore. This prevents unauthorized
+ * access to event data — the token acts as a bearer secret in the URL.
+ *
+ * External calendar apps (Google Calendar, Apple Calendar, Outlook) can
+ * subscribe using `webcal://` URLs that include this token.
  */
 import { adminDb } from '@/lib/firebase/admin'
 import { NextRequest, NextResponse } from 'next/server'
 import { Timestamp } from 'firebase-admin/firestore'
 
 function formatICalDate(date: Date): string {
-  // Format: 20240101T090000Z
   return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
 }
 
@@ -22,6 +26,7 @@ const TYPE_LABELS: Record<string, string> = {
   training: 'Training',
   match: 'Spiel',
   meeting: 'Meeting',
+  event: 'Vereins-Event',
   other: 'Termin',
 }
 
@@ -34,29 +39,48 @@ interface ICalEvent {
   location?: string
   description?: string
   teamIds?: string[]
+  status?: string
 }
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
   const clubId = searchParams.get('clubId')
   const teamId = searchParams.get('teamId')
+  const token = searchParams.get('token')
 
   if (!clubId) {
     return new NextResponse('clubId required', { status: 400 })
   }
 
   try {
-    // Load club name
+    // ── Token validation ──
     const clubDoc = await adminDb.collection('clubs').doc(clubId).get()
-    const clubName = clubDoc.exists ? (clubDoc.data()?.name ?? 'Verein') : 'Verein'
+    if (!clubDoc.exists) {
+      return new NextResponse('Club not found', { status: 404 })
+    }
 
-    // Load events
+    const clubData = clubDoc.data()!
+    const clubName = clubData.name ?? 'Verein'
+    const storedToken = clubData.settings?.icalToken
+
+    if (!storedToken) {
+      return new NextResponse(
+        'iCal feed not configured. Generate a token in Settings → Kalender-Abos.',
+        { status: 403 }
+      )
+    }
+
+    if (!token || token !== storedToken) {
+      return new NextResponse('Invalid or missing token', { status: 401 })
+    }
+
+    // ── Load events ──
     let eventsQuery = adminDb
       .collection('clubs')
       .doc(clubId)
       .collection('events')
       .orderBy('startDate', 'asc')
-      .limit(200) // Cap to avoid huge responses
+      .limit(500)
 
     if (teamId) {
       eventsQuery = adminDb
@@ -65,24 +89,32 @@ export async function GET(request: NextRequest) {
         .collection('events')
         .where('teamIds', 'array-contains', teamId)
         .orderBy('startDate', 'asc')
-        .limit(200) as typeof eventsQuery
+        .limit(500) as typeof eventsQuery
     }
 
     const snap = await eventsQuery.get()
     const events: ICalEvent[] = snap.docs.map(d => ({ id: d.id, ...d.data() } as ICalEvent))
 
-    // Build iCal
+    // Load team names for richer summaries
+    const teamsSnap = await adminDb.collection('clubs').doc(clubId).collection('teams').get()
+    const teamNames: Record<string, string> = {}
+    teamsSnap.docs.forEach(d => { teamNames[d.id] = d.data().name })
+
+    // ── Build iCal ──
     const lines: string[] = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
-      `PRODID:-//Vereinsmanager//DE`,
+      'PRODID:-//Vereinsmanager//DE',
       'CALSCALE:GREGORIAN',
       'METHOD:PUBLISH',
-      `X-WR-CALNAME:${escapeICalText(clubName)}${teamId ? ' – Team' : ''}`,
+      `X-WR-CALNAME:${escapeICalText(clubName)}${teamId ? ` – ${teamNames[teamId] ?? 'Team'}` : ''}`,
       'X-WR-TIMEZONE:Europe/Vienna',
     ]
 
     for (const event of events) {
+      // Skip cancelled events in iCal feed
+      if (event.status === 'cancelled') continue
+
       const startDate = event.startDate instanceof Timestamp
         ? event.startDate.toDate()
         : new Date(event.startDate)
@@ -91,10 +123,11 @@ export async function GET(request: NextRequest) {
         ? event.endDate.toDate()
         : event.endDate
         ? new Date(event.endDate)
-        : new Date(startDate.getTime() + 90 * 60 * 1000) // +90 min default
+        : new Date(startDate.getTime() + 90 * 60 * 1000)
 
       const typeLabel = TYPE_LABELS[event.type] ?? 'Termin'
-      const summary = `${typeLabel}: ${event.title}`
+      const eventTeams = (event.teamIds ?? []).map(id => teamNames[id]).filter(Boolean).join(', ')
+      const summary = eventTeams ? `${typeLabel}: ${event.title} (${eventTeams})` : `${typeLabel}: ${event.title}`
 
       lines.push(
         'BEGIN:VEVENT',
@@ -110,9 +143,7 @@ export async function GET(request: NextRequest) {
       }
 
       if (event.description) {
-        // iCal line length limit: 75 chars, fold with CRLF + space
         const desc = `DESCRIPTION:${escapeICalText(event.description)}`
-        // Simple fold at 75 chars
         if (desc.length > 75) {
           const folded = desc.match(/.{1,75}/g)?.join('\r\n ') ?? desc
           lines.push(folded)
@@ -132,7 +163,7 @@ export async function GET(request: NextRequest) {
       headers: {
         'Content-Type': 'text/calendar; charset=utf-8',
         'Content-Disposition': `attachment; filename="${clubName.replace(/\s+/g, '-')}.ics"`,
-        'Cache-Control': 'max-age=3600', // Cache 1h
+        'Cache-Control': 'max-age=3600',
       },
     })
   } catch (error) {

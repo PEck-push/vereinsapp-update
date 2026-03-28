@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { toast } from '@/components/ui/toaster'
-import { Camera, Check, ChevronRight, ClipboardCopy, Loader2, Shield, Trash2, Users } from 'lucide-react'
+import { Camera, Check, ChevronRight, ClipboardCopy, ExternalLink, Loader2, RefreshCw, Shield, Trash2, Users } from 'lucide-react'
 import Link from 'next/link'
 
 export default function SettingsPage() {
@@ -49,52 +49,22 @@ function SettingsNav() {
   )
 }
 
-/**
- * Converts a File to a base64 data URL.
- * Resizes to max 256x256. Keeps PNG for transparency, JPEG for photos.
- */
 async function fileToBase64(file: File, maxSize = 256): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image()
     const reader = new FileReader()
     const isPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png')
     const isSvg = file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')
-
-    // SVG: just read as data URL directly (no resize needed)
-    if (isSvg) {
-      reader.onload = () => resolve(reader.result as string)
-      reader.onerror = () => reject(new Error('Datei konnte nicht gelesen werden'))
-      reader.readAsDataURL(file)
-      return
-    }
-
+    if (isSvg) { reader.onload = () => resolve(reader.result as string); reader.onerror = () => reject(new Error('Datei konnte nicht gelesen werden')); reader.readAsDataURL(file); return }
     reader.onload = () => {
       img.onload = () => {
         let w = img.width, h = img.height
-        if (w > maxSize || h > maxSize) {
-          if (w > h) { h = Math.round(h * (maxSize / w)); w = maxSize }
-          else { w = Math.round(w * (maxSize / h)); h = maxSize }
-        }
-
-        const canvas = document.createElement('canvas')
-        canvas.width = w
-        canvas.height = h
-        const ctx = canvas.getContext('2d')
+        if (w > maxSize || h > maxSize) { if (w > h) { h = Math.round(h * (maxSize / w)); w = maxSize } else { w = Math.round(w * (maxSize / h)); h = maxSize } }
+        const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h; const ctx = canvas.getContext('2d')
         if (!ctx) { reject(new Error('Canvas not supported')); return }
-
-        // For PNG: keep transparent background
-        // For JPEG: no transparency support anyway
-        if (!isPng) {
-          ctx.fillStyle = '#ffffff'
-          ctx.fillRect(0, 0, w, h)
-        }
-
+        if (!isPng) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h) }
         ctx.drawImage(img, 0, 0, w, h)
-
-        // PNG keeps transparency, JPEG for smaller file size on photos
-        const format = isPng ? 'image/png' : 'image/jpeg'
-        const quality = isPng ? undefined : 0.85
-        resolve(canvas.toDataURL(format, quality))
+        resolve(canvas.toDataURL(isPng ? 'image/png' : 'image/jpeg', isPng ? undefined : 0.85))
       }
       img.onerror = () => reject(new Error('Bild konnte nicht geladen werden'))
       img.src = reader.result as string
@@ -116,159 +86,64 @@ function ClubProfileSection() {
 
   useEffect(() => {
     if (!db) return
-    async function load() {
-      try {
-        const snap = await getDoc(doc(db, 'clubs', CLUB_ID))
-        if (snap.exists()) {
-          const data = snap.data()
-          setClubName(data.name || '')
-          setPrimaryColor(data.primaryColor || '#1a1a2e')
-          setSecondaryColor(data.secondaryColor || '#e94560')
-          setLogoUrl(data.logoUrl || null)
-        }
-      } finally { setLoaded(true) }
-    }
+    async function load() { try { const snap = await getDoc(doc(db, 'clubs', CLUB_ID)); if (snap.exists()) { const data = snap.data(); setClubName(data.name || ''); setPrimaryColor(data.primaryColor || '#1a1a2e'); setSecondaryColor(data.secondaryColor || '#e94560'); setLogoUrl(data.logoUrl || null) } } finally { setLoaded(true) } }
     load()
   }, [])
 
-  async function handleSave() {
-    if (!db) return; setSaving(true)
-    try {
-      await setDoc(doc(db, 'clubs', CLUB_ID), { name: clubName, primaryColor, secondaryColor }, { merge: true })
-      toast.success('Vereinsprofil gespeichert')
-    } catch { toast.error('Speichern fehlgeschlagen') } finally { setSaving(false) }
-  }
+  async function handleSave() { if (!db) return; setSaving(true); try { await setDoc(doc(db, 'clubs', CLUB_ID), { name: clubName, primaryColor, secondaryColor }, { merge: true }); toast.success('Vereinsprofil gespeichert') } catch { toast.error('Speichern fehlgeschlagen') } finally { setSaving(false) } }
 
   async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (!file.type.startsWith('image/')) { toast.error('Nur Bilddateien erlaubt'); return }
-    if (file.size > 5 * 1024 * 1024) { toast.error('Maximale Dateigröße: 5 MB'); return }
-    if (!db) return
-
-    setUploading(true)
-    try {
-      const base64 = await fileToBase64(file, 256)
-      if (base64.length > 500000) { toast.error('Bild ist zu groß nach Komprimierung.'); return }
-      await setDoc(doc(db, 'clubs', CLUB_ID), { logoUrl: base64 }, { merge: true })
-      setLogoUrl(base64)
-      toast.success('Logo gespeichert')
-    } catch (err) {
-      console.error('[Logo Upload]', err)
-      toast.error('Logo konnte nicht gespeichert werden')
-    } finally { setUploading(false); if (fileRef.current) fileRef.current.value = '' }
+    const file = e.target.files?.[0]; if (!file) return; if (!file.type.startsWith('image/')) { toast.error('Nur Bilddateien erlaubt'); return }; if (file.size > 5 * 1024 * 1024) { toast.error('Maximale Dateigröße: 5 MB'); return }; if (!db) return
+    setUploading(true); try { const base64 = await fileToBase64(file, 256); if (base64.length > 500000) { toast.error('Bild ist zu groß nach Komprimierung.'); return }; await setDoc(doc(db, 'clubs', CLUB_ID), { logoUrl: base64 }, { merge: true }); setLogoUrl(base64); toast.success('Logo gespeichert') } catch (err) { console.error('[Logo Upload]', err); toast.error('Logo konnte nicht gespeichert werden') } finally { setUploading(false); if (fileRef.current) fileRef.current.value = '' }
   }
 
-  function handleRemoveLogo() {
-    if (!db) return
-    setDoc(doc(db, 'clubs', CLUB_ID), { logoUrl: '' }, { merge: true })
-    setLogoUrl(null)
-    toast.info('Logo entfernt')
-  }
+  function handleRemoveLogo() { if (!db) return; setDoc(doc(db, 'clubs', CLUB_ID), { logoUrl: '' }, { merge: true }); setLogoUrl(null); toast.info('Logo entfernt') }
 
   if (!loaded) return null
 
   return (
     <section className="space-y-4">
       <h2 className="text-base font-semibold text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>Vereinsprofil</h2>
-
-      {/* Logo preview — primary color shows through transparent areas */}
       <div className="flex items-center gap-4">
-        <div
-          className="w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center text-white font-bold text-xl shrink-0"
-          style={{ backgroundColor: primaryColor }}
-        >
-          {logoUrl ? (
-            <img src={logoUrl} alt="Logo" className="w-full h-full object-contain" />
-          ) : (
-            clubName.charAt(0).toUpperCase() || 'V'
-          )}
+        <div className="w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center text-white font-bold text-xl shrink-0" style={{ backgroundColor: primaryColor }}>
+          {logoUrl ? <img src={logoUrl} alt="Logo" className="w-full h-full object-contain" /> : clubName.charAt(0).toUpperCase() || 'V'}
         </div>
         <div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
-              {uploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Camera className="w-4 h-4 mr-2" />}
-              {logoUrl ? 'Logo ändern' : 'Logo hochladen'}
-            </Button>
-            {logoUrl && (
-              <Button variant="ghost" size="sm" onClick={handleRemoveLogo} className="text-red-500 hover:text-red-700 text-xs">
-                <Trash2 className="w-3.5 h-3.5 mr-1" /> Entfernen
-              </Button>
-            )}
+            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={uploading}>{uploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Camera className="w-4 h-4 mr-2" />}{logoUrl ? 'Logo ändern' : 'Logo hochladen'}</Button>
+            {logoUrl && <Button variant="ghost" size="sm" onClick={handleRemoveLogo} className="text-red-500 hover:text-red-700 text-xs"><Trash2 className="w-3.5 h-3.5 mr-1" /> Entfernen</Button>}
           </div>
           <p className="text-xs text-gray-400 mt-1">PNG (mit Transparenz), JPG oder SVG. Max 256×256.</p>
           <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/svg+xml" className="hidden" onChange={handleLogoUpload} />
         </div>
       </div>
-
-      <div className="space-y-1.5">
-        <Label htmlFor="clubName">Vereinsname</Label>
-        <Input id="clubName" value={clubName} onChange={e => setClubName(e.target.value)} placeholder="z.B. ASV Pöttsching" />
-      </div>
-      <div className="space-y-1.5">
-        <Label>Primärfarbe</Label>
-        <div className="flex items-center gap-3">
-          <Input type="color" value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} className="w-12 h-10 p-1 cursor-pointer" />
-          <Input value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} className="w-28 font-mono text-sm" />
-          <span className="text-xs text-gray-400">Sidebar, Header, Logo-Hintergrund</span>
-        </div>
-      </div>
-      <div className="space-y-1.5">
-        <Label>Sekundärfarbe</Label>
-        <div className="flex items-center gap-3">
-          <Input type="color" value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)} className="w-12 h-10 p-1 cursor-pointer" />
-          <Input value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)} className="w-28 font-mono text-sm" />
-          <span className="text-xs text-gray-400">Buttons, Akzente</span>
-        </div>
-      </div>
-
+      <div className="space-y-1.5"><Label htmlFor="clubName">Vereinsname</Label><Input id="clubName" value={clubName} onChange={e => setClubName(e.target.value)} placeholder="z.B. ASV Pöttsching" /></div>
+      <div className="space-y-1.5"><Label>Primärfarbe</Label><div className="flex items-center gap-3"><Input type="color" value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} className="w-12 h-10 p-1 cursor-pointer" /><Input value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} className="w-28 font-mono text-sm" /><span className="text-xs text-gray-400">Sidebar, Header, Logo-Hintergrund</span></div></div>
+      <div className="space-y-1.5"><Label>Sekundärfarbe</Label><div className="flex items-center gap-3"><Input type="color" value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)} className="w-12 h-10 p-1 cursor-pointer" /><Input value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)} className="w-28 font-mono text-sm" /><span className="text-xs text-gray-400">Buttons, Akzente</span></div></div>
       <div className="p-4 rounded-lg border space-y-3" style={{ borderRadius: '8px' }}>
         <p className="text-xs text-gray-400 font-medium">Vorschau</p>
         <div className="flex items-center gap-3">
-          {/* Logo preview on primary background — shows how transparency looks */}
-          <div className="w-10 h-10 rounded-lg overflow-hidden flex items-center justify-center" style={{ backgroundColor: primaryColor }}>
-            {logoUrl ? <img src={logoUrl} alt="" className="w-full h-full object-contain" /> : <span className="text-white text-xs font-bold">{clubName.charAt(0) || 'V'}</span>}
-          </div>
+          <div className="w-10 h-10 rounded-lg overflow-hidden flex items-center justify-center" style={{ backgroundColor: primaryColor }}>{logoUrl ? <img src={logoUrl} alt="" className="w-full h-full object-contain" /> : <span className="text-white text-xs font-bold">{clubName.charAt(0) || 'V'}</span>}</div>
           <div className="w-10 h-10 rounded-lg" style={{ backgroundColor: secondaryColor }} />
-          <div className="flex gap-2">
-            <span className="px-3 py-1 rounded-md text-xs font-medium text-white" style={{ backgroundColor: primaryColor }}>Primär</span>
-            <span className="px-3 py-1 rounded-md text-xs font-medium text-white" style={{ backgroundColor: secondaryColor }}>Sekundär</span>
-          </div>
+          <div className="flex gap-2"><span className="px-3 py-1 rounded-md text-xs font-medium text-white" style={{ backgroundColor: primaryColor }}>Primär</span><span className="px-3 py-1 rounded-md text-xs font-medium text-white" style={{ backgroundColor: secondaryColor }}>Sekundär</span></div>
         </div>
       </div>
-
-      <Button onClick={handleSave} disabled={saving} variant="club">
-        {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-        Speichern
-      </Button>
+      <Button onClick={handleSave} disabled={saving} variant="club">{saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}Speichern</Button>
     </section>
   )
 }
 
 function AdminProfileSection() {
   const user = auth?.currentUser ?? null
-  const [currentPw, setCurrentPw] = useState('')
-  const [newPw, setNewPw] = useState('')
-  const [confirmPw, setConfirmPw] = useState('')
-  const [pwLoading, setPwLoading] = useState(false)
-  const [pwError, setPwError] = useState<string | null>(null)
-  const [pwSuccess, setPwSuccess] = useState(false)
+  const [currentPw, setCurrentPw] = useState(''); const [newPw, setNewPw] = useState(''); const [confirmPw, setConfirmPw] = useState('')
+  const [pwLoading, setPwLoading] = useState(false); const [pwError, setPwError] = useState<string | null>(null); const [pwSuccess, setPwSuccess] = useState(false)
 
   async function handlePasswordChange() {
-    if (newPw !== confirmPw) { setPwError('Passwörter stimmen nicht überein'); return }
-    if (newPw.length < 8) { setPwError('Mindestens 8 Zeichen'); return }
-    if (!user?.email) return
+    if (newPw !== confirmPw) { setPwError('Passwörter stimmen nicht überein'); return }; if (newPw.length < 8) { setPwError('Mindestens 8 Zeichen'); return }; if (!user?.email) return
     setPwLoading(true); setPwError(null)
-    try {
-      await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPw))
-      await updatePassword(user, newPw)
-      setPwSuccess(true); setCurrentPw(''); setNewPw(''); setConfirmPw('')
-      setTimeout(() => setPwSuccess(false), 3000); toast.success('Passwort geändert')
-    } catch (e: unknown) {
-      const code = (e as { code?: string })?.code
-      if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') setPwError('Aktuelles Passwort ist falsch.')
-      else setPwError('Passwort konnte nicht geändert werden.')
-    } finally { setPwLoading(false) }
+    try { await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPw)); await updatePassword(user, newPw); setPwSuccess(true); setCurrentPw(''); setNewPw(''); setConfirmPw(''); setTimeout(() => setPwSuccess(false), 3000); toast.success('Passwort geändert') }
+    catch (e: unknown) { const code = (e as { code?: string })?.code; if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') setPwError('Aktuelles Passwort ist falsch.'); else setPwError('Passwort konnte nicht geändert werden.') }
+    finally { setPwLoading(false) }
   }
 
   return (
@@ -282,52 +157,165 @@ function AdminProfileSection() {
         <Input type="password" placeholder="Neues Passwort bestätigen" value={confirmPw} onChange={e => setConfirmPw(e.target.value)} />
         {pwError && <p className="text-xs text-red-600">{pwError}</p>}
         {pwSuccess && <p className="text-xs text-green-600 flex items-center gap-1"><Check className="w-3.5 h-3.5" />Passwort geändert</p>}
-        <Button variant="outline" onClick={handlePasswordChange} disabled={pwLoading || !currentPw || !newPw || !confirmPw}>
-          {pwLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Passwort speichern
-        </Button>
+        <Button variant="outline" onClick={handlePasswordChange} disabled={pwLoading || !currentPw || !newPw || !confirmPw}>{pwLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Passwort speichern</Button>
       </div>
     </section>
   )
 }
+
+// ─── Kalender-Abonnements (updated with token auth) ──────────────────────────
 
 function CalendarSubscriptionsSection() {
   const { teams } = useTeams()
   const [copied, setCopied] = useState<string | null>(null)
+  const [icalToken, setIcalToken] = useState<string | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
-  function copy(url: string, key: string) { navigator.clipboard.writeText(url); setCopied(key); setTimeout(() => setCopied(null), 2000); toast.info('Link kopiert') }
+
+  useEffect(() => {
+    if (!db) return
+    async function load() {
+      try {
+        const snap = await getDoc(doc(db, 'clubs', CLUB_ID))
+        if (snap.exists()) {
+          setIcalToken(snap.data()?.settings?.icalToken ?? null)
+        }
+      } finally { setLoaded(true) }
+    }
+    load()
+  }, [])
+
+  async function generateToken() {
+    setGenerating(true)
+    try {
+      const res = await fetch('/api/ical/generate-token', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setIcalToken(data.token)
+      toast.success('Kalender-Token generiert')
+    } catch {
+      toast.error('Token konnte nicht generiert werden')
+    } finally { setGenerating(false) }
+  }
+
+  function buildUrl(teamId?: string): string {
+    const base = `${appUrl}/api/ical?clubId=${CLUB_ID}`
+    const withTeam = teamId ? `${base}&teamId=${teamId}` : base
+    return icalToken ? `${withTeam}&token=${icalToken}` : withTeam
+  }
+
+  function buildWebcalUrl(teamId?: string): string {
+    return buildUrl(teamId).replace(/^https?:\/\//, 'webcal://')
+  }
+
+  function buildGoogleCalUrl(teamId?: string): string {
+    const url = buildUrl(teamId)
+    return `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(url)}`
+  }
+
+  function copy(url: string, key: string) {
+    navigator.clipboard.writeText(url)
+    setCopied(key)
+    setTimeout(() => setCopied(null), 2000)
+    toast.info('Link kopiert')
+  }
+
+  if (!loaded) return null
+
   return (
     <section className="space-y-4">
-      <div><h2 className="text-base font-semibold text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>Kalender-Abos</h2><p className="text-xs text-gray-400 mt-0.5">iCal Links für externe Kalender</p></div>
-      <div className="space-y-2">
-        <CalendarLinkRow label="Alle Termine" url={`${appUrl}/api/ical?clubId=${CLUB_ID}`} copied={copied === 'all'} onCopy={() => copy(`${appUrl}/api/ical?clubId=${CLUB_ID}`, 'all')} />
-        {teams.map(team => <CalendarLinkRow key={team.id} label={team.name} url={`${appUrl}/api/ical?clubId=${CLUB_ID}&teamId=${team.id}`} copied={copied === team.id} onCopy={() => copy(`${appUrl}/api/ical?clubId=${CLUB_ID}&teamId=${team.id}`, team.id)} color={team.color} />)}
+      <div>
+        <h2 className="text-base font-semibold text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>Kalender-Abos</h2>
+        <p className="text-xs text-gray-400 mt-0.5">iCal / Google Calendar / Apple Calendar Abonnements</p>
       </div>
+
+      {!icalToken ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
+          <p className="text-sm text-amber-800">
+            Um Kalender-Abos zu aktivieren, muss ein Sicherheitstoken generiert werden.
+            Dieser Token schützt die Kalender-URLs vor unbefugtem Zugriff.
+          </p>
+          <Button variant="outline" size="sm" onClick={generateToken} disabled={generating}>
+            {generating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Shield className="w-4 h-4 mr-2" />}
+            Token generieren
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {/* Alle Termine */}
+          <CalendarLinkRow
+            label="Alle Termine"
+            httpsUrl={buildUrl()}
+            webcalUrl={buildWebcalUrl()}
+            googleUrl={buildGoogleCalUrl()}
+            copied={copied === 'all'}
+            onCopy={() => copy(buildUrl(), 'all')}
+          />
+
+          {/* Pro Team */}
+          {teams.map(team => (
+            <CalendarLinkRow
+              key={team.id}
+              label={team.name}
+              color={team.color}
+              httpsUrl={buildUrl(team.id)}
+              webcalUrl={buildWebcalUrl(team.id)}
+              googleUrl={buildGoogleCalUrl(team.id)}
+              copied={copied === team.id}
+              onCopy={() => copy(buildUrl(team.id), team.id)}
+            />
+          ))}
+
+          {/* Regenerate */}
+          <div className="pt-2 border-t">
+            <Button variant="ghost" size="sm" onClick={generateToken} disabled={generating} className="text-xs text-gray-500">
+              {generating ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1" />}
+              Token neu generieren
+            </Button>
+            <p className="text-xs text-gray-400 mt-1">
+              Achtung: Bestehende Kalender-Abos müssen danach neu eingerichtet werden.
+            </p>
+          </div>
+        </div>
+      )}
     </section>
   )
 }
 
-function CalendarLinkRow({ label, url, copied, onCopy, color }: { label: string; url: string; copied: boolean; onCopy: () => void; color?: string }) {
+function CalendarLinkRow({ label, httpsUrl, webcalUrl, googleUrl, copied, onCopy, color }: {
+  label: string; httpsUrl: string; webcalUrl: string; googleUrl: string; copied: boolean; onCopy: () => void; color?: string
+}) {
   return (
-    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-      {color && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />}
-      <span className="text-sm font-medium text-gray-700 flex-1">{label}</span>
-      <code className="text-xs text-gray-400 hidden md:block truncate max-w-[200px]">{url}</code>
-      <button onClick={onCopy} className="text-gray-400 hover:text-gray-700 shrink-0 p-1">{copied ? <Check className="w-4 h-4 text-green-500" /> : <ClipboardCopy className="w-4 h-4" />}</button>
+    <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+      <div className="flex items-center gap-3">
+        {color && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />}
+        <span className="text-sm font-medium text-gray-700 flex-1">{label}</span>
+        <button onClick={onCopy} className="text-gray-400 hover:text-gray-700 shrink-0 p-1" title="iCal-URL kopieren">
+          {copied ? <Check className="w-4 h-4 text-green-500" /> : <ClipboardCopy className="w-4 h-4" />}
+        </button>
+      </div>
+      <div className="flex gap-2 flex-wrap">
+        <a href={webcalUrl} className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-1 rounded">
+          <ExternalLink className="w-3 h-3" />Apple / Outlook
+        </a>
+        <a href={googleUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[11px] font-medium text-green-700 hover:text-green-900 bg-green-50 px-2 py-1 rounded">
+          <ExternalLink className="w-3 h-3" />Google Calendar
+        </a>
+      </div>
     </div>
   )
 }
 
 function SeasonSection() {
   const MONTHS = ['Jänner','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember']
-  const [startMonth, setStartMonth] = useState(6)
-  const [saving, setSaving] = useState(false)
+  const [startMonth, setStartMonth] = useState(6); const [saving, setSaving] = useState(false)
   async function handleSave() { if (!db) return; setSaving(true); try { await setDoc(doc(db, 'clubs', CLUB_ID), { settings: { seasonStartMonth: startMonth } }, { merge: true }); toast.success('Saison gespeichert') } catch { toast.error('Fehlgeschlagen') } finally { setSaving(false) } }
   return (
     <section className="space-y-4">
       <div><h2 className="text-base font-semibold text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>Saison</h2><p className="text-xs text-gray-400 mt-0.5">Für Statistik-Filter</p></div>
-      <div className="space-y-1.5"><Label>Saison-Start Monat</Label>
-        <select value={startMonth} onChange={e => setStartMonth(Number(e.target.value))} className="flex h-10 w-48 rounded-[6px] border border-input bg-background px-3 py-2 text-sm">{MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}</select>
-      </div>
+      <div className="space-y-1.5"><Label>Saison-Start Monat</Label><select value={startMonth} onChange={e => setStartMonth(Number(e.target.value))} className="flex h-10 w-48 rounded-[6px] border border-input bg-background px-3 py-2 text-sm">{MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}</select></div>
       <Button variant="outline" onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}Speichern</Button>
     </section>
   )

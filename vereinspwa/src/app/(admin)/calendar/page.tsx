@@ -14,11 +14,17 @@ import {
   Loader2, MapPin, Plus, Users,
 } from 'lucide-react'
 import { Timestamp } from 'firebase/firestore'
-import type { ClubEvent, Team } from '@/lib/types'
+import type { ClubEvent, RecurrenceFrequency, Team } from '@/lib/types'
 
 const WEEKDAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
 const MONTHS = ['Jänner','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember']
-const TYPE_LABELS: Record<string, string> = { training: 'Training', match: 'Spiel', meeting: 'Besprechung', other: 'Termin' }
+const TYPE_LABELS: Record<string, string> = {
+  training: 'Training',
+  match: 'Spiel',
+  meeting: 'Besprechung',
+  event: 'Vereins-Event',
+  other: 'Termin',
+}
 const CLUB_EVENT_COLOR = '#F59E0B'
 
 function toDate(d: unknown): Date { if (d instanceof Timestamp) return d.toDate(); if (d instanceof Date) return d; return new Date(d as string) }
@@ -48,7 +54,12 @@ export default function CalendarPage() {
     return events
   }, [events, filterTeam])
 
-  async function handleAddEvent(data: Omit<ClubEvent, 'id' | 'clubId' | 'responseCount' | 'createdAt' | 'updatedAt'>) { await addEvent(data) }
+  async function handleAddEvent(
+    data: Omit<ClubEvent, 'id' | 'clubId' | 'responseCount' | 'createdAt' | 'updatedAt'>,
+    recurrence?: { frequency: RecurrenceFrequency; daysOfWeek: number[]; until: Date }
+  ) {
+    await addEvent(data, recurrence)
+  }
 
   return (
     <div>
@@ -133,7 +144,6 @@ function ListView({ events, teamMap, timeFilter, onTimeFilterChange }: {
             const isToday = isSameDay(date, now)
             return (
               <div key={date.toISOString()}>
-                {/* Date header */}
                 <div className="flex items-center gap-3 mb-3">
                   <div className="text-center shrink-0" style={{ minWidth: '48px' }}>
                     <p className={`text-xs font-medium ${isToday ? 'text-[var(--club-secondary,#e94560)]' : 'text-gray-400'}`}>
@@ -148,8 +158,6 @@ function ListView({ events, teamMap, timeFilter, onTimeFilterChange }: {
                     {date.toLocaleDateString('de-AT', { month: 'long' })}
                   </p>
                 </div>
-
-                {/* Event cards — full width, small left padding */}
                 <div className="space-y-2 pl-[60px]">
                   {dayEvents.map(event => <ListEventCard key={event.id} event={event} teamMap={teamMap} />)}
                 </div>
@@ -177,7 +185,10 @@ function ListEventCard({ event, teamMap }: { event: ClubEvent; teamMap: Map<stri
       <div className="flex">
         <div className="w-1.5 shrink-0" style={{ backgroundColor: color }} />
         <div className="flex-1 p-4 min-w-0">
-          <p className="font-medium text-gray-900 text-sm">{event.title}</p>
+          <div className="flex items-center gap-2">
+            <p className="font-medium text-gray-900 text-sm">{event.title}</p>
+            {event.recurrenceGroupId && <span className="text-[10px] text-gray-400" title="Wiederkehrender Termin">🔄</span>}
+          </div>
           <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 mt-1.5 text-xs text-gray-500">
             <span>{timeStr}{endTimeStr ? ` - ${endTimeStr}` : ''} Uhr</span>
             {event.location && <span className="flex items-center gap-0.5"><MapPin className="w-3 h-3" />{event.location}</span>}

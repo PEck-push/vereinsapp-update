@@ -9,6 +9,8 @@ export interface Club {
     timezone: string
     defaultSport: string
     seasonStartMonth?: number
+    /** Secret token for unauthenticated iCal feeds */
+    icalToken?: string
   }
 }
 
@@ -64,16 +66,36 @@ export type WithFirestoreTimestamps<T> = {
 
 export type ClubEventStatus = 'scheduled' | 'cancelled' | 'completed'
 
+// ─── Recurrence ───────────────────────────────────────────────────────────────
+
+export type RecurrenceFrequency = 'weekly' | 'biweekly'
+
+export interface RecurrenceRule {
+  /** Frequency of recurrence */
+  frequency: RecurrenceFrequency
+  /** Days of week (0=Sunday … 6=Saturday). Multiple days allowed (e.g. Tue+Thu training). */
+  daysOfWeek: number[]
+  /** End date for the recurrence (inclusive). Max 6 months out. */
+  until: Date
+}
+
+// ─── ClubEvent ────────────────────────────────────────────────────────────────
+
 export interface ClubEvent {
   id: string
   clubId: string
   title: string
-  type: 'training' | 'match' | 'meeting' | 'other'
+  /** 'event' = Vereins-Event (teamIds may be empty) */
+  type: 'training' | 'match' | 'meeting' | 'event' | 'other'
   status: ClubEventStatus
   startDate: Date
   endDate?: Date
   location?: string
   description?: string
+  /**
+   * Empty array = Vereins-Event (betrifft alle Mannschaften).
+   * Filled = team-specific event.
+   */
   teamIds: string[]
   responseDeadline?: Date
   responseCount: {
@@ -85,6 +107,19 @@ export interface ClubEvent {
   cancelReason?: string
   /** Flag set by hourly reminder function to avoid duplicate sends */
   reminders2hSent?: boolean
+
+  // ── Recurrence fields ──
+  /**
+   * If set, this event was generated from a recurring series.
+   * Points to the ID of the first event in the series.
+   */
+  recurrenceGroupId?: string
+  /**
+   * The recurrence rule that was used to generate this series.
+   * Only stored on the first event of the series (the "template").
+   */
+  recurrenceRule?: RecurrenceRule
+
   createdBy: string
   createdAt: Date
   updatedAt: Date

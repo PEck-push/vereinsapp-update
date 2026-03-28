@@ -23,6 +23,11 @@ service cloud.firestore {
       return isSignedIn() && resource.data.uid == request.auth.uid;
     }
 
+    // NEW: Check if an event is still accepting responses
+    function isEventOpen(clubId, eventId) {
+      return get(/databases/$(database)/documents/clubs/$(clubId)/events/$(eventId)).data.status == 'scheduled';
+    }
+
     match /clubs/{clubId} {
       allow read: if isAdminOfClub(clubId) || isPlayerOfClub(clubId);
       allow create: if false;
@@ -58,7 +63,10 @@ service cloud.firestore {
           allow read: if isAdminOfClub(clubId);
           allow read: if isSignedIn() &&
             get(/databases/$(database)/documents/clubs/$(clubId)/playerUids/$(request.auth.uid)).data.playerId == responsePlayerId;
+
+          // FIX: Only allow responses on events that are still 'scheduled' (not cancelled/completed)
           allow create, update: if isSignedIn() &&
+            isEventOpen(clubId, eventId) &&
             get(/databases/$(database)/documents/clubs/$(clubId)/playerUids/$(request.auth.uid)).data.playerId == responsePlayerId &&
             request.resource.data.keys().hasOnly(['playerId','status','reason','declineCategory','respondedAt','source']) &&
             request.resource.data.status in ['accepted', 'declined'] &&
