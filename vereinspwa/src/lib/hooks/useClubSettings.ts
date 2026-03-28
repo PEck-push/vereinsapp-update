@@ -22,9 +22,13 @@ const DEFAULTS: ClubSettings = {
 /**
  * Loads club settings (name, logo, colors) from Firestore.
  * Listens in realtime — changes in Settings are reflected instantly.
+ *
+ * Also exposes `seedMode` flag: true if the club document has _seedMode: true
+ * (set by the seed script to indicate test data is present).
  */
 export function useClubSettings() {
   const [settings, setSettings] = useState<ClubSettings>(DEFAULTS)
+  const [seedMode, setSeedMode] = useState(false)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -41,6 +45,7 @@ export function useClubSettings() {
             primaryColor: data.primaryColor || DEFAULTS.primaryColor,
             secondaryColor: data.secondaryColor || DEFAULTS.secondaryColor,
           })
+          setSeedMode(data._seedMode === true)
         }
         setLoading(false)
       },
@@ -53,5 +58,5 @@ export function useClubSettings() {
     return unsub
   }, [])
 
-  return { settings, loading }
+  return { settings, seedMode, loading }
 }
