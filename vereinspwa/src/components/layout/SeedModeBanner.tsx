@@ -1,100 +1,182 @@
+'use client'
+
+import { useState } from 'react'
+import { useClubTheme } from '@/components/layout/ClubThemeProvider'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { AlertTriangle, Check, Database, Loader2, Trash2, X } from 'lucide-react'
+
 /**
- * DELETE /api/admin/seed-reset
- *
- * Deletes all Firestore documents where _seed === true.
- * Also removes seed auth accounts.
- * Only accessible by admins.
+ * Shows when _seedMode is true on the club document.
+ * - Yellow banner with "Testmodus aktiv"
+ * - Delete button to remove all _seed:true data
  */
-import { adminAuth, adminDb } from '@/lib/firebase/admin'
-import { CLUB_ID } from '@/lib/config'
-import { FieldValue } from 'firebase-admin/firestore'
-import { cookies } from 'next/headers'
-import { NextResponse } from 'next/server'
+export function SeedModeBanner() {
+  const { seedMode } = useClubTheme()
+  const [dismissed, setDismissed] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
 
-const ADMIN_ROLES = new Set(['admin'])
+  if (!seedMode || dismissed) return null
 
-async function verifyAdmin(): Promise<boolean> {
-  const cookieStore = await cookies()
-  const sessionCookie = cookieStore.get('__session')?.value
-  if (!sessionCookie) return false
-  try {
-    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true)
-    const role = decoded.role as string | undefined
-    return !!role && ADMIN_ROLES.has(role)
-  } catch { return false }
+  async function handleDelete() {
+    setDeleting(true)
+    try {
+      const res = await fetch('/api/admin/seed', { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setResult(data.message)
+      setTimeout(() => window.location.reload(), 2000)
+    } catch (err) {
+      setResult(`Fehler: ${(err as Error).message}`)
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex items-center gap-3">
+        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-amber-800">Testmodus aktiv</p>
+          <p className="text-xs text-amber-600">Testdaten werden angezeigt (markiert mit _seed).</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setConfirmOpen(true)}
+          className="shrink-0 text-red-600 border-red-200 hover:bg-red-50 text-xs">
+          <Trash2 className="w-3.5 h-3.5 mr-1.5" />Testdaten löschen
+        </Button>
+        <button onClick={() => setDismissed(true)} className="text-amber-400 hover:text-amber-600 shrink-0 p-1">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <Dialog open={confirmOpen} onOpenChange={(o) => !o && !deleting && setConfirmOpen(false)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Testmodus beenden?</DialogTitle></DialogHeader>
+          {result ? (
+            <div className="py-4">
+              <p className="text-sm text-green-700 bg-green-50 p-3 rounded-md flex items-center gap-2">
+                <Check className="w-4 h-4" />{result}
+              </p>
+              <p className="text-xs text-gray-400 mt-2">Seite wird neu geladen...</p>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2 text-sm text-gray-600">
+                <p>Folgendes wird gelöscht:</p>
+                <p className="text-xs text-gray-500">
+                  Alle Test-Spieler, Teams, Events, Responses und Spielberichte
+                  (nur Dokumente mit <code className="bg-gray-100 px-1 rounded">_seed: true</code>).
+                </p>
+                <p className="text-sm font-medium text-gray-800">
+                  Echte Daten bleiben erhalten.
+                </p>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={deleting}>Abbrechen</Button>
+                <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+                  {deleting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Lösche...</> : <><Trash2 className="w-4 h-4 mr-2" />Löschen</>}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
+  )
 }
 
-const SEED_AUTH_EMAILS = [
-  'admin@testverein.at',
-  'trainer1@testverein.at',
-  'trainer2@testverein.at',
-]
+/**
+ * Settings section for loading test data.
+ * Shows only when NO seed data is active.
+ * Place this in the Settings page.
+ */
+export function SeedSettingsSection() {
+  const { seedMode } = useClubTheme()
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<{ message: string; stats?: Record<string, number> } | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-export async function DELETE() {
-  if (!await verifyAdmin()) {
-    return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 })
+  if (seedMode) return null // Already in test mode
+
+  async function handleSeed() {
+    setLoading(true)
+    setError(null)
+    setResult(null)
+    try {
+      const res = await fetch('/api/admin/seed', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setResult({ message: data.message, stats: data.stats })
+      setTimeout(() => window.location.reload(), 3000)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setLoading(false)
+    }
   }
 
-  try {
-    const clubRef = adminDb.collection('clubs').doc(CLUB_ID)
-    const subcollections = ['players', 'teams', 'events', 'adminUsers', 'playerUids', 'matchStats', 'messages']
-    let totalDeleted = 0
+  return (
+    <section className="space-y-4">
+      <div>
+        <h2 className="text-base font-semibold text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>
+          Testmodus
+        </h2>
+        <p className="text-xs text-gray-400 mt-0.5">
+          Testdaten laden um die App auszuprobieren
+        </p>
+      </div>
 
-    for (const sub of subcollections) {
-      const snap = await clubRef.collection(sub).where('_seed', '==', true).get()
+      <div className="bg-white rounded-lg border p-5 space-y-4" style={{ borderRadius: '8px' }}>
+        <div className="flex items-start gap-3">
+          <Database className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm text-gray-700">
+              Erstellt einen kompletten Test-Datensatz mit <b>4 Mannschaften</b>,{' '}
+              <b>48 Spielern</b>, <b>Trainings und Spielen</b> der letzten 6 Wochen
+              inklusive Zu-/Absagen und Spielberichten.
+            </p>
+            <p className="text-xs text-gray-400 mt-2">
+              Alle Testdaten werden mit einem <code className="bg-gray-100 px-1 rounded">_seed</code> Flag
+              markiert und können jederzeit wieder gelöscht werden, ohne echte Daten zu beeinflussen.
+            </p>
+          </div>
+        </div>
 
-      for (let i = 0; i < snap.docs.length; i += 400) {
-        const batch = adminDb.batch()
-        const chunk = snap.docs.slice(i, i + 400)
-
-        for (const doc of chunk) {
-          // Delete nested responses subcollection for events
-          if (sub === 'events') {
-            const respSnap = await doc.ref.collection('responses').get()
-            respSnap.docs.forEach(r => batch.delete(r.ref))
-            totalDeleted += respSnap.docs.length
-          }
-          batch.delete(doc.ref)
-        }
-
-        await batch.commit()
-      }
-
-      totalDeleted += snap.docs.length
-    }
-
-    // Remove _seedMode flag from club doc
-    const clubSnap = await clubRef.get()
-    if (clubSnap.exists) {
-      if (clubSnap.data()?._seed === true) {
-        // Entire club was seeded — delete it
-        await clubRef.delete()
-        totalDeleted++
-      } else {
-        // Real club with seed data mixed in — just remove the flag
-        await clubRef.update({ _seedMode: FieldValue.delete() })
-      }
-    }
-
-    // Delete seed auth accounts
-    let authDeleted = 0
-    for (const email of SEED_AUTH_EMAILS) {
-      try {
-        const user = await adminAuth.getUserByEmail(email)
-        await adminAuth.deleteUser(user.uid)
-        authDeleted++
-      } catch {
-        // Doesn't exist, skip
-      }
-    }
-
-    return NextResponse.json({
-      deleted: totalDeleted,
-      authDeleted,
-      message: `${totalDeleted} Testdokumente und ${authDeleted} Test-Accounts gelöscht.`,
-    })
-  } catch (error) {
-    console.error('[seed-reset DELETE]', error)
-    return NextResponse.json({ error: 'Löschen fehlgeschlagen.' }, { status: 500 })
-  }
+        {result ? (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <p className="text-sm font-medium text-green-800 flex items-center gap-2">
+              <Check className="w-4 h-4" />{result.message}
+            </p>
+            {result.stats && (
+              <p className="text-xs text-green-600 mt-1">
+                {result.stats.teams} Teams, {result.stats.players} Spieler,{' '}
+                {result.stats.events} Events, {result.stats.responses} Antworten
+              </p>
+            )}
+            <p className="text-xs text-gray-400 mt-2">Seite wird neu geladen...</p>
+          </div>
+        ) : error ? (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+            <p className="text-sm text-red-700">{error}</p>
+          </div>
+        ) : (
+          <Button onClick={handleSeed} disabled={loading} variant="outline">
+            {loading ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Erstelle Testdaten...</>
+            ) : (
+              <><Database className="w-4 h-4 mr-2" />Testdaten laden</>
+            )}
+          </Button>
+        )}
+      </div>
+    </section>
+  )
 }
