@@ -24,8 +24,6 @@ export function usePlayers(teamId?: string) {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    // Firestore `array-contains` filter when teamId is given,
-    // otherwise fetch all players for this club.
     const q = teamId
       ? query(
           playersRef(),
@@ -51,6 +49,10 @@ export function usePlayers(teamId?: string) {
     return unsub
   }, [teamId])
 
+  /**
+   * Add a new player. Returns the Firestore document ID
+   * so the caller can immediately generate an invite link.
+   */
   async function addPlayer(
     data: Omit<
       Player,
@@ -65,8 +67,8 @@ export function usePlayers(teamId?: string) {
       | 'uid'
       | 'fcmTokens'
     >
-  ) {
-    await addDoc(playersRef(), {
+  ): Promise<string> {
+    const docRef = await addDoc(playersRef(), {
       ...data,
       clubId: CLUB_ID,
       inviteTokenUsed: false,
@@ -76,6 +78,7 @@ export function usePlayers(teamId?: string) {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     })
+    return docRef.id
   }
 
   async function updatePlayer(

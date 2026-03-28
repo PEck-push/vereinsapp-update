@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTeams } from '@/lib/hooks/useTeams'
+import { AdminCredentialsDialog } from '@/components/players/InviteLinkDialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -47,6 +48,15 @@ export default function AdminUsersPage() {
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null)
   const [deleting, setDeleting] = useState(false)
 
+  // ── Credentials Dialog ──
+  const [credentialsDialogOpen, setCredentialsDialogOpen] = useState(false)
+  const [createdCredentials, setCreatedCredentials] = useState<{
+    email: string
+    password: string
+    role: string
+    displayName?: string
+  } | null>(null)
+
   async function loadUsers() {
     setLoadError(false)
     try {
@@ -76,6 +86,13 @@ export default function AdminUsersPage() {
       loadUsers()
     } catch { toast.error('Löschen fehlgeschlagen') }
     finally { setDeleting(false) }
+  }
+
+  function handleUserCreated(credentials: { email: string; password: string; role: string; displayName?: string }) {
+    setCreateOpen(false)
+    setCreatedCredentials(credentials)
+    setCredentialsDialogOpen(true)
+    loadUsers()
   }
 
   return (
@@ -112,18 +129,13 @@ export default function AdminUsersPage() {
         <div className="text-center py-12 text-gray-400 border-2 border-dashed rounded-lg">
           <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-40" />
           <p className="text-sm">Benutzer konnten nicht geladen werden.</p>
-          <p className="text-xs text-gray-400 mt-1">Prüfe ob die API-Route korrekt angelegt ist.</p>
-          <Button variant="outline" size="sm" className="mt-3" onClick={() => { setLoading(true); loadUsers() }}>
-            Erneut versuchen
-          </Button>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => { setLoading(true); loadUsers() }}>Erneut versuchen</Button>
         </div>
       ) : users.length === 0 ? (
         <div className="text-center py-16 text-gray-400 border-2 border-dashed rounded-lg">
           <Shield className="w-8 h-8 mx-auto mb-2 opacity-40" />
           <p className="text-sm font-medium text-gray-600">Noch keine Benutzer angelegt</p>
-          <p className="text-xs text-gray-400 mt-1 max-w-xs mx-auto">
-            Erstelle Admin-, Trainer- oder Funktionär-Accounts damit sich dein Team einloggen kann.
-          </p>
+          <p className="text-xs text-gray-400 mt-1 max-w-xs mx-auto">Erstelle Admin-, Trainer- oder Funktionär-Accounts.</p>
           <Button variant="club" size="sm" className="mt-4" onClick={() => setCreateOpen(true)}>
             <UserPlus className="w-4 h-4 mr-2" /> Ersten Benutzer anlegen
           </Button>
@@ -170,7 +182,19 @@ export default function AdminUsersPage() {
         </div>
       )}
 
-      <CreateAdminDialog open={createOpen} onClose={() => setCreateOpen(false)} teams={teams} onCreated={() => { setCreateOpen(false); loadUsers() }} />
+      <CreateAdminDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        teams={teams}
+        onCreated={handleUserCreated}
+      />
+
+      {/* Credentials Dialog — shows after successful creation */}
+      <AdminCredentialsDialog
+        open={credentialsDialogOpen}
+        onClose={() => { setCredentialsDialogOpen(false); setCreatedCredentials(null) }}
+        credentials={createdCredentials}
+      />
 
       <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <DialogContent className="sm:max-w-sm">
@@ -189,8 +213,13 @@ export default function AdminUsersPage() {
   )
 }
 
+// ─── Create Admin Dialog ──────────────────────────────────────────────────────
+
 function CreateAdminDialog({ open, onClose, teams, onCreated }: {
-  open: boolean; onClose: () => void; teams: ReturnType<typeof useTeams>['teams']; onCreated: () => void
+  open: boolean
+  onClose: () => void
+  teams: ReturnType<typeof useTeams>['teams']
+  onCreated: (credentials: { email: string; password: string; role: string; displayName?: string }) => void
 }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -218,8 +247,15 @@ function CreateAdminDialog({ open, onClose, teams, onCreated }: {
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error ?? 'Fehler beim Erstellen'); return }
-      toast.success('Benutzer erstellt', `${email} wurde als ${ROLE_INFO[role]?.label ?? role} angelegt.`)
-      onCreated(); reset()
+
+      // Pass credentials to parent so it can show the credentials dialog
+      onCreated({
+        email,
+        password,
+        role,
+        displayName: displayName.trim() || undefined,
+      })
+      reset()
     } catch { setError('Benutzer konnte nicht erstellt werden.') }
     finally { setSubmitting(false) }
   }
