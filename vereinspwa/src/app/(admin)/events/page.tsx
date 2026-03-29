@@ -6,13 +6,14 @@ import { useTeams } from '@/lib/hooks/useTeams'
 import { usePlayers } from '@/lib/hooks/usePlayers'
 import { EventSheet } from '@/components/events/EventSheet'
 import { EventResponsePanel } from '@/components/events/EventResponsePanel'
+import { TelegramPostDialog } from '@/components/events/TelegramPostDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { CalendarDays, ChevronDown, ChevronUp, Loader2, MapPin, MoreHorizontal, Plus, Repeat, Search, Trash2, Users, XCircle } from 'lucide-react'
+import { CalendarDays, ChevronDown, ChevronUp, Loader2, MapPin, MoreHorizontal, Plus, Repeat, Search, Send, Trash2, Users, XCircle } from 'lucide-react'
 import { Timestamp } from 'firebase/firestore'
 import type { ClubEvent, RecurrenceFrequency } from '@/lib/types'
 
@@ -43,6 +44,7 @@ export default function EventsPage() {
   const [cancelReason, setCancelReason] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<ClubEvent | null>(null)
   const [deleteSeriesTarget, setDeleteSeriesTarget] = useState<ClubEvent | null>(null)
+  const [telegramTarget, setTelegramTarget] = useState<ClubEvent | null>(null)
 
   const now = new Date()
   const teamMap = useMemo(() => new Map(teams.map(t => [t.id, t])), [teams])
@@ -138,7 +140,7 @@ export default function EventsPage() {
             const teamColor = firstTeam?.color ?? '#F59E0B'
             const eventPlayers = event.teamIds.length > 0
               ? players.filter(p => p.teamIds.some(id => event.teamIds.includes(id)) && p.status !== 'inactive')
-              : players.filter(p => p.status !== 'inactive') // Vereins-Event: alle Spieler
+              : players.filter(p => p.status !== 'inactive')
             const isRecurring = !!event.recurrenceGroupId
 
             return (
@@ -163,6 +165,9 @@ export default function EventsPage() {
                           <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-gray-400"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => openEdit(event)}>Bearbeiten</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setTelegramTarget(event)}>
+                              <Send className="w-4 h-4 mr-2" />In Telegram posten
+                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => setCancelTarget(event)} className="text-orange-600"><XCircle className="w-4 h-4 mr-2" />Absagen</DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onClick={() => setDeleteTarget(event)} className="text-red-600"><Trash2 className="w-4 h-4 mr-2" />Löschen</DropdownMenuItem>
@@ -202,6 +207,13 @@ export default function EventsPage() {
       )}
 
       <EventSheet open={sheetOpen} onClose={() => setSheetOpen(false)} event={editingEvent} teams={teams} onSubmit={handleSheetSubmit} />
+
+      {/* Telegram Post Dialog */}
+      <TelegramPostDialog
+        open={!!telegramTarget}
+        onClose={() => setTelegramTarget(null)}
+        event={telegramTarget}
+      />
 
       {/* Cancel Dialog */}
       <Dialog open={!!cancelTarget} onOpenChange={(o) => !o && setCancelTarget(null)}>

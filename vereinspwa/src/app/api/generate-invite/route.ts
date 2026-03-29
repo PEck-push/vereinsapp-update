@@ -26,8 +26,26 @@ async function verifyAdmin(): Promise<string | null> {
   if (!sessionCookie) return null
   try {
     const decoded = await adminAuth.verifySessionCookie(sessionCookie, true)
+    const uid = decoded.uid
+
+    // Check custom claims first
     const role = decoded.role as string | undefined
-    return role && ADMIN_ROLES.has(role) ? decoded.uid : null
+    if (role && ADMIN_ROLES.has(role)) return uid
+
+    // Fallback: check Firestore adminUsers (for manually created admins)
+    const adminDoc = await adminDb
+      .collection('clubs').doc(CLUB_ID)
+      .collection('adminUsers').doc(uid)
+      .get()
+    if (adminDoc.exists) {
+      const docRole = adminDoc.data()?.role as string
+      if (ADMIN_ROLES.has(docRole)) {
+        await adminAuth.setCustomUserClaims(uid, { role: docRole, clubId: CLUB_ID })
+        return uid
+      }
+    }
+
+    return null
   } catch {
     return null
   }
