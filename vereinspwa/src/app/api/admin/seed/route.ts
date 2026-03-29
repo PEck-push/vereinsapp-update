@@ -16,15 +16,38 @@ import { NextResponse } from 'next/server'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
-const ADMIN_ROLES = new Set(['admin'])
+const ADMIN_ROLES = new Set(['admin', 'secretary'])
 
 async function verifyAdmin(): Promise<boolean> {
   const cookieStore = await cookies()
   const session = cookieStore.get('__session')?.value
   if (!session) return false
   try {
-    const d = await adminAuth.verifySessionCookie(session, true)
-    return !!d.role && ADMIN_ROLES.has(d.role as string)
+    const decoded = await adminAuth.verifySessionCookie(session, true)
+    const uid = decoded.uid
+
+    // First check custom claims (set by /api/admin/users)
+    if (decoded.role && ADMIN_ROLES.has(decoded.role as string)) {
+      return true
+    }
+
+    // Fallback: check Firestore adminUsers collection
+    // (needed when admin was created manually in Firebase Console)
+    const adminDoc = await adminDb
+      .collection('clubs').doc(CLUB_ID)
+      .collection('adminUsers').doc(uid)
+      .get()
+
+    if (adminDoc.exists) {
+      const role = adminDoc.data()?.role as string
+      if (ADMIN_ROLES.has(role)) {
+        // Set custom claims for future requests so this fallback isn't needed again
+        await adminAuth.setCustomUserClaims(uid, { role, clubId: CLUB_ID })
+        return true
+      }
+    }
+
+    return false
   } catch { return false }
 }
 
