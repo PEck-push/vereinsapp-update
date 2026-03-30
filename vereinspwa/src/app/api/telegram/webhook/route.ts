@@ -118,7 +118,7 @@ async function findPlayerByTelegramId(telegramUserId: number) {
 // ─── Response Logic ───────────────────────────────────────────────────────────
 
 async function writeResponse(eventId: string, playerId: string, status: 'accepted' | 'declined', declineCategory?: string) {
-  const admin = await import('firebase-admin')
+  const { FieldValue } = await import('firebase-admin/firestore')
   const db = await getFirestore()
   const respRef = db.collection('clubs').doc(CLUB_ID).collection('events').doc(eventId).collection('responses').doc(playerId)
   const eventRef = db.collection('clubs').doc(CLUB_ID).collection('events').doc(eventId)
@@ -128,7 +128,7 @@ async function writeResponse(eventId: string, playerId: string, status: 'accepte
 
   const data: Record<string, unknown> = {
     playerId, status,
-    respondedAt: admin.firestore.FieldValue.serverTimestamp(),
+    respondedAt: FieldValue.serverTimestamp(),
     source: 'telegram',
   }
   if (declineCategory) data.declineCategory = declineCategory
@@ -136,13 +136,13 @@ async function writeResponse(eventId: string, playerId: string, status: 'accepte
 
   if (!prevStatus) {
     await eventRef.update({
-      [`responseCount.${status}`]: admin.firestore.FieldValue.increment(1),
-      'responseCount.total': admin.firestore.FieldValue.increment(1),
+      [`responseCount.${status}`]: FieldValue.increment(1),
+      'responseCount.total': FieldValue.increment(1),
     })
   } else if (prevStatus !== status) {
     await eventRef.update({
-      [`responseCount.${prevStatus}`]: admin.firestore.FieldValue.increment(-1),
-      [`responseCount.${status}`]: admin.firestore.FieldValue.increment(1),
+      [`responseCount.${prevStatus}`]: FieldValue.increment(-1),
+      [`responseCount.${status}`]: FieldValue.increment(1),
     })
   }
 }
@@ -162,12 +162,12 @@ function buildDeclineButtons(eventId: string) {
 }
 
 async function refreshEventMessage(eventId: string, chatId: number, messageId: number) {
-  const admin = await import('firebase-admin')
+  const { Timestamp, FieldPath } = await import('firebase-admin/firestore')
   const db = await getFirestore()
   const eventSnap = await db.collection('clubs').doc(CLUB_ID).collection('events').doc(eventId).get()
   if (!eventSnap.exists) return
   const event = eventSnap.data()!
-  const startDate = (event.startDate as admin.firestore.Timestamp).toDate()
+  const startDate = (event.startDate as InstanceType<typeof Timestamp>).toDate()
 
   const responsesSnap = await db.collection('clubs').doc(CLUB_ID).collection('events').doc(eventId).collection('responses').get()
 
@@ -177,7 +177,7 @@ async function refreshEventMessage(eventId: string, chatId: number, messageId: n
   for (let i = 0; i < pIds.length; i += 30) {
     const batch = pIds.slice(i, i + 30)
     if (!batch.length) continue
-    const ps = await db.collection('clubs').doc(CLUB_ID).collection('players').where(admin.firestore.FieldPath.documentId(), 'in', batch).get()
+    const ps = await db.collection('clubs').doc(CLUB_ID).collection('players').where(FieldPath.documentId(), 'in', batch).get()
     ps.docs.forEach(d => { names[d.id] = `${d.data().firstName} ${d.data().lastName?.[0] ?? ''}.` })
   }
 
