@@ -112,9 +112,10 @@ export default function PlayersPage() {
   function openCreate() { setEditingPlayer(null); setSheetOpen(true) }
 
   // ── Generate invite for a single player ──
+  // FIX: Corrected API path from /api/auth/generate-invite to /api/generate-invite
   async function generateInvite(playerId: string): Promise<InviteResult | null> {
     try {
-      const res = await fetch('/api/auth/generate-invite', {
+      const res = await fetch('/api/generate-invite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ playerId }),
@@ -129,8 +130,9 @@ export default function PlayersPage() {
         inviteUrl: data.inviteUrl,
         expiresAt: data.expiresAt,
       }
-    } catch {
-      toast.error('Einladung fehlgeschlagen')
+    } catch (err) {
+      console.error('[generateInvite]', err)
+      toast.error('Einladung fehlgeschlagen', 'Server nicht erreichbar.')
       return null
     }
   }
@@ -148,10 +150,20 @@ export default function PlayersPage() {
       return
     }
 
-    // Create player
-    const newPlayerId = await addPlayer(normalized as Parameters<typeof addPlayer>[0])
+    // FIX: Wrap addPlayer in try-catch so Firestore permission errors
+    // are propagated back to PlayerSheet (which now shows them)
+    let newPlayerId: string
+    try {
+      newPlayerId = await addPlayer(normalized as Parameters<typeof addPlayer>[0])
+    } catch (err) {
+      console.error('[handleSheetSubmit] addPlayer failed:', err)
+      // Re-throw so PlayerSheet's try-catch catches it and shows the error
+      throw err
+    }
 
-    // Auto-generate invite
+    toast.success('Spieler angelegt', `${data.firstName} ${data.lastName} wurde erstellt.`)
+
+    // Auto-generate invite (non-blocking — player is already created)
     setInviteLoading(true)
     setInviteDialogOpen(true)
     setInviteResult(null)
@@ -175,6 +187,7 @@ export default function PlayersPage() {
   }
 
   // ── Bulk invite ──
+  // FIX: Corrected API path from /api/auth/generate-invite to /api/generate-invite
   async function handleBulkInvite() {
     const playerIds = uninvitedPlayers.map(p => p.id)
     if (playerIds.length === 0) return
@@ -186,7 +199,7 @@ export default function PlayersPage() {
     setInviteLoading(true)
 
     try {
-      const res = await fetch('/api/auth/generate-invite', {
+      const res = await fetch('/api/generate-invite', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ playerIds }),

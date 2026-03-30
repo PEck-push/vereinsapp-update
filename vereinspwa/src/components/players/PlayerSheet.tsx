@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { MultiSelect } from '@/components/ui/multi-select'
-import { Loader2 } from 'lucide-react'
+import { AlertCircle, Loader2 } from 'lucide-react'
 import type { Player, Team } from '@/lib/types'
 
 const playerSchema = z.object({
@@ -41,6 +41,8 @@ interface PlayerSheetProps {
 
 export function PlayerSheet({ open, onClose, player, teams, onSubmit }: PlayerSheetProps) {
   const isEdit = !!player
+  // FIX: Add error state so submit errors are visible to the user
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const {
     register,
@@ -94,11 +96,27 @@ export function PlayerSheet({ open, onClose, player, teams, onSubmit }: PlayerSh
         notificationPrefs: { push: true, email: true },
       })
     }
+    // FIX: Clear error when sheet opens/closes or player changes
+    setSubmitError(null)
   }, [player, reset, open])
 
   async function handleFormSubmit(data: PlayerFormValues) {
-    await onSubmit(data)
-    onClose()
+    // FIX: Wrap in try-catch so Firestore permission errors and other
+    // failures are shown to the user instead of silently swallowed
+    setSubmitError(null)
+    try {
+      await onSubmit(data)
+      onClose()
+    } catch (err) {
+      console.error('[PlayerSheet] Submit error:', err)
+      const message = err instanceof Error ? err.message : 'Spieler konnte nicht gespeichert werden.'
+      // Check for common Firestore permission error
+      if (message.includes('permission') || message.includes('PERMISSION_DENIED')) {
+        setSubmitError('Keine Berechtigung. Stelle sicher, dass dein Admin-Account korrekt eingerichtet ist.')
+      } else {
+        setSubmitError(message)
+      }
+    }
   }
 
   const teamOptions = teams.map((t) => ({
@@ -211,6 +229,14 @@ export function PlayerSheet({ open, onClose, player, teams, onSubmit }: PlayerSh
               )}
             />
           </div>
+
+          {/* FIX: Show submit errors visibly */}
+          {submitError && (
+            <div className="flex items-start gap-2 text-sm text-red-600 bg-red-50 p-3 rounded-md">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{submitError}</span>
+            </div>
+          )}
 
           {/* Action buttons — full width stacked on mobile */}
           <div className="flex flex-col-reverse sm:flex-row gap-3 pt-4 border-t">
