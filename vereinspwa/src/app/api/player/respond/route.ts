@@ -123,8 +123,15 @@ export async function POST(request: NextRequest) {
     await responseRef.set(responseData, { merge: true })
 
     // Update event responseCount (this is what fails client-side for players)
+    //
+    // DEFENSIVE: The original client-side code wrote response docs WITHOUT
+    // updating the counter (Security Rules blocked the event update for players).
+    // This means some response docs exist but total/accepted/declined are 0.
+    // We must detect this and avoid decrementing below 0.
+    const currentCounts = eventData.responseCount ?? { accepted: 0, declined: 0, total: 0 }
+
     if (!previousStatus) {
-      // New response
+      // New response — straightforward increment
       await eventRef.update({
         [`responseCount.${status}`]: FieldValue.increment(1),
         'responseCount.total': FieldValue.increment(1),
@@ -132,13 +139,37 @@ export async function POST(request: NextRequest) {
       })
     } else if (previousStatus !== status) {
       // Changed response (e.g. accepted → declined)
-      await eventRef.update({
-        [`responseCount.${previousStatus}`]: FieldValue.increment(-1),
-        [`responseCount.${status}`]: FieldValue.increment(1),
-        updatedAt: FieldValue.serverTimestamp(),
-      })
+      const prevCount = (currentCounts as Record<string, number>)[previousStatus] ?? 0
+
+      if (prevCount > 0) {
+        // Normal case: counter was properly tracked — swap counts
+        await eventRef.update({
+          [`responseCount.${previousStatus}`]: FieldValue.increment(-1),
+          [`responseCount.${status}`]: FieldValue.increment(1),
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+      } else {
+        // Counter was never incremented for the old status (corrupted from old bug).
+        // Treat as if this is a brand new response: increment new status + total.
+        await eventRef.update({
+          [`responseCount.${status}`]: FieldValue.increment(1),
+          'responseCount.total': FieldValue.increment(1),
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+      }
+    } else {
+      // Same status re-submitted. Check if counter was never tracked.
+      const currentStatusCount = (currentCounts as Record<string, number>)[status] ?? 0
+      if (currentStatusCount <= 0) {
+        // Response exists but counter doesn't reflect it — fix it now
+        await eventRef.update({
+          [`responseCount.${status}`]: FieldValue.increment(1),
+          'responseCount.total': FieldValue.increment(1),
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+      }
+      // Otherwise: same status, counter already correct — no change
     }
-    // If same status → no counter change needed
 
     return NextResponse.json({
       status: 'ok',
