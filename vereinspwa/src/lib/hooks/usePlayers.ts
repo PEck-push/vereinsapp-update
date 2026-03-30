@@ -18,6 +18,23 @@ function playersRef() {
   return collection(db, 'clubs', CLUB_ID, 'players')
 }
 
+/**
+ * FIX: Recursively strip undefined values from an object before sending to Firestore.
+ * Firestore throws "Unsupported field value: undefined" if any field is undefined.
+ */
+function stripUndefined(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined) continue
+    if (value !== null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+      result[key] = stripUndefined(value as Record<string, unknown>)
+    } else {
+      result[key] = value
+    }
+  }
+  return result
+}
+
 export function usePlayers(teamId?: string) {
   const [players, setPlayers] = useState<Player[]>([])
   const [loading, setLoading] = useState(true)
@@ -68,13 +85,16 @@ export function usePlayers(teamId?: string) {
       | 'fcmTokens'
     >
   ): Promise<string> {
+    // FIX: Strip undefined values before writing to Firestore
+    const cleanData = stripUndefined(data as unknown as Record<string, unknown>)
+
     const docRef = await addDoc(playersRef(), {
-      ...data,
+      ...cleanData,
       clubId: CLUB_ID,
       inviteTokenUsed: false,
       accountStatus: 'invited',
       fcmTokens: [],
-      notificationPrefs: data.notificationPrefs ?? { push: true, email: true },
+      notificationPrefs: (data as Record<string, unknown>).notificationPrefs ?? { push: true, email: true },
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     })
@@ -85,8 +105,10 @@ export function usePlayers(teamId?: string) {
     id: string,
     data: Partial<Omit<Player, 'id' | 'clubId' | 'createdAt'>>
   ) {
+    // FIX: Strip undefined values for updates too
+    const cleanData = stripUndefined(data as unknown as Record<string, unknown>)
     await updateDoc(doc(playersRef(), id), {
-      ...data,
+      ...cleanData,
       updatedAt: serverTimestamp(),
     })
   }

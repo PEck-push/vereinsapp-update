@@ -139,11 +139,11 @@ export default function PlayersPage() {
 
   // ── After creating a new player: auto-generate invite ──
   async function handleSheetSubmit(data: PlayerFormData) {
-    const normalized = {
-      ...data,
-      jerseyNumber: data.jerseyNumber || undefined,
-      dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : undefined,
-    }
+    // FIX: Firestore rejects `undefined` values — omit empty optional fields entirely
+    const { jerseyNumber, dateOfBirth, ...rest } = data
+    const normalized: Record<string, unknown> = { ...rest }
+    if (jerseyNumber) normalized.jerseyNumber = jerseyNumber
+    if (dateOfBirth) normalized.dateOfBirth = new Date(dateOfBirth)
 
     if (editingPlayer) {
       await updatePlayer(editingPlayer.id, normalized)
