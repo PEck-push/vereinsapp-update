@@ -19,13 +19,14 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import {
-  AlertCircle, Bell, Calendar, Camera, Check,
-  ChevronDown, ChevronUp, KeyRound, Loader2, LogOut, Phone, User,
+  AlertCircle, Bell, Calendar, Camera, Check, ChevronDown, ChevronLeft,
+  ChevronRight, ChevronUp, ClipboardCopy, ExternalLink, KeyRound,
+  Loader2, LogOut, Phone, User,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import type { ClubEvent, Player } from '@/lib/types'
+import type { ClubEvent, DeclineCategory, Player } from '@/lib/types'
 import {
-  collection, onSnapshot, query, where, doc, getDoc,
+  collection, onSnapshot, query, where, doc, getDoc, Timestamp,
 } from 'firebase/firestore'
 import { db } from '@/lib/firebase/client'
 
@@ -42,7 +43,21 @@ const STATUS_LABELS: Record<string, { label: string; variant: 'success' | 'warni
   inactive: { label: 'Inaktiv', variant: 'muted' },
 }
 
-type Tab = 'overview' | 'profile'
+const MONTHS = ['Jänner','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember']
+const WEEKDAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+
+type Tab = 'overview' | 'calendar' | 'profile'
+
+function toDate(d: unknown): Date {
+  if (d instanceof Timestamp) return d.toDate()
+  if (d instanceof Date) return d
+  if (d && typeof d === 'object' && 'toDate' in d) return (d as { toDate: () => Date }).toDate()
+  return new Date(d as string)
+}
+
+function isSameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
 
 export default function MeinBereichPage() {
   const { state, updateProfile, reload } = usePlayerProfile()
@@ -64,13 +79,13 @@ export default function MeinBereichPage() {
     <div className="max-w-xl pb-12">
       {/* Nav */}
       <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-lg">
-        {(['overview', 'profile'] as Tab[]).map((t) => (
+        {(['overview', 'calendar', 'profile'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${tab === t ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
           >
-            {t === 'overview' ? 'Übersicht' : 'Mein Profil'}
+            {t === 'overview' ? 'Übersicht' : t === 'calendar' ? 'Kalender' : 'Mein Profil'}
           </button>
         ))}
         <button onClick={handleLogout} className="px-3 py-1.5 text-sm font-medium text-gray-500 hover:text-red-600 flex items-center gap-1">
@@ -79,11 +94,41 @@ export default function MeinBereichPage() {
       </div>
 
       {tab === 'overview' && <OverviewTab player={player} />}
+      {tab === 'calendar' && <CalendarTab player={player} />}
       {tab === 'profile' && <ProfileTab player={player} updateProfile={updateProfile} onPhotoUpdate={reload} />}
 
       <NotificationBanner playerId={player.id} />
     </div>
   )
+}
+
+// ─── API-based response submission ────────────────────────────────────────────
+
+async function submitResponseViaAPI(
+  eventId: string,
+  playerId: string,
+  response: {
+    playerId: string
+    status: 'accepted' | 'declined'
+    declineCategory?: DeclineCategory
+    reason?: string
+  }
+): Promise<void> {
+  const res = await fetch('/api/player/respond', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      eventId,
+      status: response.status,
+      declineCategory: response.declineCategory,
+      reason: response.reason,
+    }),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error ?? 'Antwort konnte nicht gespeichert werden.')
+  }
 }
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
@@ -95,22 +140,24 @@ function OverviewTab({ player }: { player: Player }) {
 
   const now = new Date()
 
-  // Filter events for this player's teams
+  // Filter events for this player's teams + club-wide events (empty teamIds)
   const myEvents = useMemo(() =>
-    events.filter((e) => e.teamIds.some((id) => player.teamIds.includes(id))),
+    events.filter((e) =>
+      e.teamIds.length === 0 || e.teamIds.some((id) => player.teamIds.includes(id))
+    ),
     [events, player.teamIds]
   )
 
   const upcoming = myEvents.filter((e) => {
-    const d = (e.startDate as unknown as { toDate?: () => Date }).toDate?.() ?? new Date(e.startDate as unknown as string)
-    return d >= now
-  })
+    const d = toDate(e.startDate)
+    return d >= now && e.status !== 'cancelled'
+  }).sort((a, b) => toDate(a.startDate).getTime() - toDate(b.startDate).getTime())
 
   const past = myEvents.filter((e) => {
-    const d = (e.startDate as unknown as { toDate?: () => Date }).toDate?.() ?? new Date(e.startDate as unknown as string)
+    const d = toDate(e.startDate)
     const cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
     return d < now && d >= cutoff
-  })
+  }).sort((a, b) => toDate(b.startDate).getTime() - toDate(a.startDate).getTime())
 
   // Load my responses
   useEffect(() => {
@@ -122,6 +169,13 @@ function OverviewTab({ player }: { player: Player }) {
       return onSnapshot(ref, (snap) => {
         if (snap.exists()) {
           setMyResponses((prev) => ({ ...prev, [eventId]: snap.data().status }))
+        } else {
+          // Clear response if doc was deleted
+          setMyResponses((prev) => {
+            const next = { ...prev }
+            delete next[eventId]
+            return next
+          })
         }
       })
     })
@@ -155,7 +209,15 @@ function OverviewTab({ player }: { player: Player }) {
             <p className="text-sm">Keine kommenden Termine</p>
           </div>
         ) : (
-          upcoming.map((event) => <EventCard key={event.id} event={event} responseBadge={getResponseBadge(event.id)} hasResponse={!!myResponses[event.id]} onAnswer={() => setResponseEvent(event)} />)
+          upcoming.map((event) => (
+            <EventCard
+              key={event.id}
+              event={event}
+              responseBadge={getResponseBadge(event.id)}
+              hasResponse={!!myResponses[event.id]}
+              onAnswer={() => setResponseEvent(event)}
+            />
+          ))
         )}
       </div>
 
@@ -168,16 +230,28 @@ function OverviewTab({ player }: { player: Player }) {
           </button>
           {showPast && (
             <div className="space-y-2 mt-2">
-              {past.map((event) => <EventCard key={event.id} event={event} responseBadge={getResponseBadge(event.id)} hasResponse={!!myResponses[event.id]} onAnswer={() => {}} isPast />)}
+              {past.map((event) => (
+                <EventCard
+                  key={event.id}
+                  event={event}
+                  responseBadge={getResponseBadge(event.id)}
+                  hasResponse={!!myResponses[event.id]}
+                  onAnswer={() => {}}
+                  isPast
+                />
+              ))}
             </div>
           )}
         </div>
       )}
 
+      {/* FIX: Use API-based submission via onSubmit prop so counters update correctly */}
       <EventResponseDialog
         open={!!responseEvent}
         event={responseEvent}
         playerId={player.id}
+        existingResponse={responseEvent ? (myResponses[responseEvent.id] as 'accepted' | 'declined' | undefined) ?? null : null}
+        onSubmit={submitResponseViaAPI}
         onClose={() => setResponseEvent(null)}
       />
     </div>
@@ -187,11 +261,11 @@ function OverviewTab({ player }: { player: Player }) {
 function EventCard({ event, responseBadge, hasResponse, onAnswer, isPast }: {
   event: ClubEvent; responseBadge: React.ReactNode; hasResponse: boolean; onAnswer: () => void; isPast?: boolean
 }) {
-  const d = (event.startDate as unknown as { toDate?: () => Date }).toDate?.() ?? new Date(event.startDate as unknown as string)
+  const d = toDate(event.startDate)
   const dateStr = d.toLocaleDateString('de-AT', { weekday: 'short', day: 'numeric', month: 'short' })
   const timeStr = d.toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })
 
-  const TYPE_LABELS: Record<string, string> = { training: 'Training', match: 'Spiel', meeting: 'Besprechung', other: 'Termin' }
+  const TYPE_LABELS: Record<string, string> = { training: 'Training', match: 'Spiel', meeting: 'Besprechung', event: 'Vereins-Event', other: 'Termin' }
 
   return (
     <div className={`bg-white rounded-lg border p-4 ${isPast ? 'opacity-60' : ''}`}>
@@ -204,11 +278,240 @@ function EventCard({ event, responseBadge, hasResponse, onAnswer, isPast }: {
           <p className="font-medium text-gray-900 text-sm truncate">{event.title}</p>
           <p className="text-xs text-gray-500 mt-0.5">{dateStr} · {timeStr} Uhr{event.location && ` · ${event.location}`}</p>
         </div>
-        {!isPast && !hasResponse && (
+        {/* FIX: Always show button for non-past events — "Ändern" if already responded */}
+        {!isPast && (
           <Button onClick={onAnswer} size="sm" variant="outline" className="shrink-0 text-xs">
-            Antworten
+            {hasResponse ? 'Ändern' : 'Antworten'}
           </Button>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Calendar Tab ─────────────────────────────────────────────────────────────
+function CalendarTab({ player }: { player: Player }) {
+  const { events, loading } = useEvents()
+  const [currentDate, setCurrentDate] = useState(new Date())
+  const [selectedDate, setSelectedDate] = useState<Date | null>(new Date())
+  const [icalToken, setIcalToken] = useState<string | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
+
+  // Load iCal token from club document
+  useEffect(() => {
+    if (!db) return
+    const unsub = onSnapshot(doc(db, 'clubs', CLUB_ID), (snap) => {
+      if (snap.exists()) {
+        setIcalToken(snap.data()?.settings?.icalToken ?? null)
+      }
+    })
+    return unsub
+  }, [])
+
+  // Filter to player's teams + club-wide events
+  const myEvents = useMemo(() =>
+    events.filter((e) =>
+      e.status !== 'cancelled' &&
+      (e.teamIds.length === 0 || e.teamIds.some((id) => player.teamIds.includes(id)))
+    ),
+    [events, player.teamIds]
+  )
+
+  const year = currentDate.getFullYear()
+  const month = currentDate.getMonth()
+  const today = new Date()
+
+  function prevMonth() { setCurrentDate(new Date(year, month - 1, 1)); setSelectedDate(null) }
+  function nextMonth() { setCurrentDate(new Date(year, month + 1, 1)); setSelectedDate(null) }
+
+  // Build calendar grid
+  const days: Date[] = []
+  const date = new Date(year, month, 1)
+  while (date.getMonth() === month) { days.push(new Date(date)); date.setDate(date.getDate() + 1) }
+  const firstDayOfWeek = (days[0].getDay() + 6) % 7
+  const paddingBefore = Array.from({ length: firstDayOfWeek }, (_, i) => new Date(year, month, -firstDayOfWeek + i + 1))
+  const allCells = [...paddingBefore, ...days]
+  const remaining = (7 - (allCells.length % 7)) % 7
+  const grid = [...allCells, ...Array.from({ length: remaining }, (_, i) => new Date(year, month + 1, i + 1))]
+
+  const selectedDayEvents = selectedDate
+    ? myEvents.filter(e => isSameDay(toDate(e.startDate), selectedDate)).sort((a, b) => toDate(a.startDate).getTime() - toDate(b.startDate).getTime())
+    : []
+
+  function buildICalUrl(teamId?: string): string {
+    const base = `${appUrl}/api/ical?clubId=${CLUB_ID}`
+    const withTeam = teamId ? `${base}&teamId=${teamId}` : base
+    return icalToken ? `${withTeam}&token=${icalToken}` : withTeam
+  }
+
+  function buildWebcalUrl(teamId?: string): string {
+    return buildICalUrl(teamId).replace(/^https?:\/\//, 'webcal://')
+  }
+
+  function buildGoogleCalUrl(teamId?: string): string {
+    const url = buildICalUrl(teamId)
+    return `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(url)}`
+  }
+
+  function copyUrl(url: string, key: string) {
+    navigator.clipboard.writeText(url)
+    setCopied(key)
+    setTimeout(() => setCopied(null), 2000)
+  }
+
+  // Load team names for display
+  const [teamNames, setTeamNames] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (!db || player.teamIds.length === 0) return
+    const unsubs = player.teamIds.map(teamId => {
+      return onSnapshot(doc(db, 'clubs', CLUB_ID, 'teams', teamId), (snap) => {
+        if (snap.exists()) {
+          setTeamNames(prev => ({ ...prev, [teamId]: snap.data().name }))
+        }
+      })
+    })
+    return () => unsubs.forEach(u => u())
+  }, [player.teamIds])
+
+  const TYPE_LABELS: Record<string, string> = { training: 'Training', match: 'Spiel', meeting: 'Besprechung', event: 'Vereins-Event', other: 'Termin' }
+
+  if (loading) return <div className="flex justify-center py-12"><Loader2 className="w-5 h-5 animate-spin text-gray-400" /></div>
+
+  return (
+    <div className="space-y-4">
+      {/* Month Navigation */}
+      <div className="flex items-center justify-between">
+        <button onClick={prevMonth} className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500"><ChevronLeft className="w-5 h-5" /></button>
+        <h2 className="text-base font-semibold" style={{ fontFamily: 'Outfit, sans-serif', color: '#1a1a2e' }}>{MONTHS[month]} {year}</h2>
+        <button onClick={nextMonth} className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500"><ChevronRight className="w-5 h-5" /></button>
+      </div>
+
+      {/* Calendar Grid */}
+      <div className="bg-white rounded-lg border overflow-hidden" style={{ borderRadius: '8px' }}>
+        <div className="grid grid-cols-7 border-b">
+          {WEEKDAYS.map(d => <div key={d} className="py-2 text-center text-xs font-medium text-gray-400">{d}</div>)}
+        </div>
+        <div className="grid grid-cols-7">
+          {grid.map((cellDate, i) => {
+            const isCurrentMonth = cellDate.getMonth() === month
+            const isToday = isSameDay(cellDate, today)
+            const isSelected = selectedDate && isSameDay(cellDate, selectedDate)
+            const dayEvents = myEvents.filter(e => isSameDay(toDate(e.startDate), cellDate))
+            const hasEvents = dayEvents.length > 0
+
+            return (
+              <button
+                key={i}
+                onClick={() => setSelectedDate(cellDate)}
+                className={`min-h-[52px] p-1 border-b border-r text-left transition-colors ${
+                  !isCurrentMonth ? 'bg-gray-50' : 'hover:bg-gray-50'
+                } ${isSelected ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : ''}`}
+              >
+                <span className={`inline-flex items-center justify-center w-6 h-6 text-xs font-medium rounded-full ${
+                  isToday ? 'text-white' : isCurrentMonth ? 'text-gray-700' : 'text-gray-300'
+                }`}
+                  style={isToday ? { backgroundColor: 'var(--club-secondary, #e94560)' } : {}}
+                >
+                  {cellDate.getDate()}
+                </span>
+                {hasEvents && (
+                  <div className="flex gap-0.5 mt-0.5 justify-center">
+                    {dayEvents.slice(0, 3).map((_, idx) => (
+                      <span key={idx} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'var(--club-secondary, #e94560)' }} />
+                    ))}
+                  </div>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Selected Day Events */}
+      {selectedDate && (
+        <div className="bg-white rounded-lg border p-4" style={{ borderRadius: '8px' }}>
+          <h3 className="text-sm font-semibold text-gray-700 mb-3" style={{ fontFamily: 'Outfit, sans-serif' }}>
+            {selectedDate.toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </h3>
+          {selectedDayEvents.length === 0 ? (
+            <p className="text-sm text-gray-400">Keine Termine.</p>
+          ) : (
+            <div className="space-y-2">
+              {selectedDayEvents.map(ev => {
+                const time = toDate(ev.startDate).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })
+                return (
+                  <div key={ev.id} className="p-3 rounded-lg border">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs text-gray-400">{TYPE_LABELS[ev.type] ?? 'Termin'}</span>
+                      <span className="text-xs text-gray-400 ml-auto">{time} Uhr</span>
+                    </div>
+                    <p className="text-sm font-medium text-gray-900">{ev.title}</p>
+                    {ev.location && <p className="text-xs text-gray-500 mt-0.5">{ev.location}</p>}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Calendar Subscriptions */}
+      {icalToken && appUrl && (
+        <div className="bg-white rounded-lg border p-4 space-y-3" style={{ borderRadius: '8px' }}>
+          <div className="flex items-center gap-2 mb-1">
+            <Calendar className="w-4 h-4 text-gray-400" />
+            <h3 className="text-sm font-semibold text-gray-700" style={{ fontFamily: 'Outfit, sans-serif' }}>Kalender abonnieren</h3>
+          </div>
+          <p className="text-xs text-gray-400">Termine automatisch in deinem Kalender anzeigen.</p>
+
+          {/* One link per team the player belongs to */}
+          {player.teamIds.map(teamId => (
+            <CalendarSubRow
+              key={teamId}
+              label={teamNames[teamId] ?? 'Team'}
+              webcalUrl={buildWebcalUrl(teamId)}
+              googleUrl={buildGoogleCalUrl(teamId)}
+              httpsUrl={buildICalUrl(teamId)}
+              copied={copied === teamId}
+              onCopy={() => copyUrl(buildICalUrl(teamId), teamId)}
+            />
+          ))}
+
+          {/* All events link */}
+          <CalendarSubRow
+            label="Alle Vereinstermine"
+            webcalUrl={buildWebcalUrl()}
+            googleUrl={buildGoogleCalUrl()}
+            httpsUrl={buildICalUrl()}
+            copied={copied === 'all'}
+            onCopy={() => copyUrl(buildICalUrl(), 'all')}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CalendarSubRow({ label, webcalUrl, googleUrl, httpsUrl, copied, onCopy }: {
+  label: string; webcalUrl: string; googleUrl: string; httpsUrl: string; copied: boolean; onCopy: () => void
+}) {
+  return (
+    <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium text-gray-700 flex-1">{label}</span>
+        <button onClick={onCopy} className="text-gray-400 hover:text-gray-700 shrink-0 p-1" title="iCal-URL kopieren">
+          {copied ? <Check className="w-4 h-4 text-green-500" /> : <ClipboardCopy className="w-4 h-4" />}
+        </button>
+      </div>
+      <div className="flex gap-2 flex-wrap">
+        <a href={webcalUrl} className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-1 rounded">
+          <ExternalLink className="w-3 h-3" />Apple / Outlook
+        </a>
+        <a href={googleUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[11px] font-medium text-green-700 hover:text-green-900 bg-green-50 px-2 py-1 rounded">
+          <ExternalLink className="w-3 h-3" />Google Calendar
+        </a>
       </div>
     </div>
   )
