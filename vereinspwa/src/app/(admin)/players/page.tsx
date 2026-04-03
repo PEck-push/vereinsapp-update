@@ -9,6 +9,7 @@ import { usePlayers } from '@/lib/hooks/usePlayers'
 import { useTeams } from '@/lib/hooks/useTeams'
 import { PlayerSheet } from '@/components/players/PlayerSheet'
 import { InviteLinkDialog } from '@/components/players/InviteLinkDialog'
+import { PlayerAvatar } from '@/components/ui/club-avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -55,6 +56,8 @@ interface InviteResult {
   playerName: string
   inviteUrl: string
   expiresAt?: string
+  playerEmail?: string
+  emailSent?: boolean
 }
 
 export default function PlayersPage() {
@@ -125,10 +128,15 @@ export default function PlayersPage() {
         toast.error('Einladung fehlgeschlagen', data.error)
         return null
       }
+      if (data.emailSent) {
+        toast.success('E-Mail wird gesendet', `Einladung an ${data.playerEmail ?? 'Spieler'}`)
+      }
       return {
         playerName: data.playerName,
         inviteUrl: data.inviteUrl,
         expiresAt: data.expiresAt,
+        playerEmail: data.playerEmail,
+        emailSent: data.emailSent,
       }
     } catch (err) {
       console.error('[generateInvite]', err)
@@ -397,6 +405,7 @@ function PlayerTable({ players, allTeams, onEdit, onArchive, onDelete, onInvite 
               <TableRow key={player.id}>
                 <TableCell>
                   <div className="flex items-center gap-2">
+                    <PlayerAvatar firstName={player.firstName} lastName={player.lastName} size={28} />
                     <Link href={`/players/${player.id}`} className="font-medium hover:underline" style={{ color: 'var(--club-primary, #1a1a2e)' }}>
                       {player.firstName} {player.lastName}
                     </Link>

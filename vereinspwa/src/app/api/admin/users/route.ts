@@ -6,7 +6,7 @@
  * DELETE  → remove an admin user (keeps Auth account, removes admin role)
  */
 import { adminAuth, adminDb } from '@/lib/firebase/admin'
-import { CLUB_ID } from '@/lib/config'
+import { getClubIdFromSession } from '@/lib/firebase/getClubIdFromSession'
 import { FieldValue } from 'firebase-admin/firestore'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
@@ -30,9 +30,12 @@ export async function GET() {
     return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 })
   }
 
+  const clubId = await getClubIdFromSession()
+  if (!clubId) return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 })
+
   try {
     const snap = await adminDb
-      .collection('clubs').doc(CLUB_ID)
+      .collection('clubs').doc(clubId)
       .collection('adminUsers')
       .orderBy('createdAt', 'desc')
       .get()
@@ -70,6 +73,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 })
   }
 
+  const clubId = await getClubIdFromSession()
+  if (!clubId) return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 })
+
   try {
     const { email, password, displayName, role, teamIds } = await request.json()
 
@@ -97,12 +103,12 @@ export async function POST(request: NextRequest) {
     // Set custom claims
     await adminAuth.setCustomUserClaims(userRecord.uid, {
       role,
-      clubId: CLUB_ID,
+      clubId,
     })
 
     // Create adminUsers document
     await adminDb
-      .collection('clubs').doc(CLUB_ID)
+      .collection('clubs').doc(clubId)
       .collection('adminUsers').doc(userRecord.uid)
       .set({
         uid: userRecord.uid,
@@ -132,6 +138,9 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 })
   }
 
+  const clubId = await getClubIdFromSession()
+  if (!clubId) return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 })
+
   try {
     const { uid } = await request.json()
     if (!uid) {
@@ -143,7 +152,7 @@ export async function DELETE(request: NextRequest) {
 
     // Delete adminUsers document
     await adminDb
-      .collection('clubs').doc(CLUB_ID)
+      .collection('clubs').doc(clubId)
       .collection('adminUsers').doc(uid)
       .delete()
 

@@ -40,7 +40,11 @@ export default function CalendarPage() {
   const { events, loading, addEvent } = useEvents()
   const { teams } = useTeams()
   const [filterTeam, setFilterTeam] = useState('all')
-  const [viewMode, setViewMode] = useState<ViewMode>('list')
+  // Default to list view on mobile (< 640px)
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 640) return 'list'
+    return 'list'
+  })
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('upcoming')
   const [sheetOpen, setSheetOpen] = useState(false)
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -71,12 +75,12 @@ export default function CalendarPage() {
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
           {([
-            { key: 'list' as ViewMode, label: 'Liste', icon: LayoutList },
-            { key: 'week' as ViewMode, label: 'Woche', icon: CalendarDays },
-            { key: 'month' as ViewMode, label: 'Monat', icon: Grid3X3 },
-          ]).map(({ key, label, icon: Icon }) => (
+            { key: 'list' as ViewMode, label: 'Liste', icon: LayoutList, hideOnMobile: false },
+            { key: 'week' as ViewMode, label: 'Woche', icon: CalendarDays, hideOnMobile: true },
+            { key: 'month' as ViewMode, label: 'Monat', icon: Grid3X3, hideOnMobile: false },
+          ]).map(({ key, label, icon: Icon, hideOnMobile }) => (
             <button key={key} onClick={() => setViewMode(key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${viewMode === key ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${viewMode === key ? 'bg-white shadow text-gray-900' : 'text-gray-500'} ${hideOnMobile ? 'hidden sm:flex' : ''}`}>
               <Icon className="w-3.5 h-3.5" /><span className="hidden sm:inline">{label}</span>
             </button>
           ))}

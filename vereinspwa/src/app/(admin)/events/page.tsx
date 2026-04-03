@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { CalendarDays, ChevronDown, ChevronUp, Loader2, MapPin, MoreHorizontal, Plus, Repeat, Search, Send, Trash2, Users, XCircle } from 'lucide-react'
+import { toast } from '@/components/ui/toaster'
 import { Timestamp } from 'firebase/firestore'
 import type { ClubEvent, RecurrenceFrequency } from '@/lib/types'
 
@@ -197,7 +198,20 @@ export default function EventsPage() {
 
                 {isExpanded && (
                   <div className="border-t px-4 py-3 bg-gray-50">
-                    <EventResponsePanel eventId={event.id} allPlayers={players} eventTeamIds={event.teamIds} activeTab={responseTab} onTabChange={setResponseTab} onSendReminder={() => {}} />
+                    <EventResponsePanel eventId={event.id} allPlayers={players} eventTeamIds={event.teamIds} activeTab={responseTab} onTabChange={setResponseTab} onSendReminder={async (playerId) => {
+                        try {
+                          const res = await fetch('/api/notifications/remind', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ eventId: event.id, playerIds: [playerId] }),
+                          })
+                          const data = await res.json()
+                          if (!res.ok) { toast.error('Fehler', data.error); return }
+                          if (data.skipped > 0) { toast.info('Bereits erinnert', 'Spieler wurde in den letzten 4 Stunden bereits erinnert.'); return }
+                          if (data.sent > 0) { toast.success('Erinnerung gesendet') }
+                          else { toast.error('Nicht gesendet', 'Spieler hat keine Push-Benachrichtigungen aktiviert.') }
+                        } catch { toast.error('Netzwerkfehler') }
+                      }} />
                   </div>
                 )}
               </div>

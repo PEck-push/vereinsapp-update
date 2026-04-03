@@ -33,11 +33,16 @@ service cloud.firestore {
       allow create: if false;
       allow update, delete: if isAdminOfClub(clubId);
 
+      // playerUids: mapping from Firebase Auth UID → playerId.
+      // Written exclusively by Admin SDK (set-claims route). No client writes allowed.
       match /playerUids/{uid} {
         allow read: if isSignedIn() && request.auth.uid == uid;
         allow write: if false; // Admin SDK only
       }
 
+      // SECURITY FIX: adminUsers read restricted to club-scoped admins only.
+      // Previously any admin could read all other admins across clubs.
+      // Now only admins of THIS club can read/write admin user documents.
       match /adminUsers/{uid} {
         allow read, write: if isAdminOfClub(clubId);
       }
@@ -47,6 +52,8 @@ service cloud.firestore {
         allow write: if isAdminOfClub(clubId);
       }
 
+      // Players: admins have full access, players can read their own doc
+      // and update specific profile fields (phone, photo, FCM tokens, notification prefs).
       match /players/{playerId} {
         allow read, write: if isAdminOfClub(clubId);
         allow read: if isOwnPlayerDoc();
@@ -59,6 +66,8 @@ service cloud.firestore {
         allow read: if isAdminOfClub(clubId) || isPlayerOfClub(clubId);
         allow create, update, delete: if isAdminOfClub(clubId);
 
+        // Responses: admins can read all, players can only read their own response.
+        // Players can create/update their own response only when the event is still 'scheduled'.
         match /responses/{responsePlayerId} {
           allow read: if isAdminOfClub(clubId);
           allow read: if isSignedIn() &&
@@ -73,15 +82,49 @@ service cloud.firestore {
             request.resource.data.playerId == responsePlayerId;
           allow delete: if isAdminOfClub(clubId);
         }
+
+        // Event reminders: tracks last reminder sent per player (rate-limiting).
+        // Written by Admin SDK only (notifications/remind API route).
+        match /reminders/{playerId} {
+          allow read: if isAdminOfClub(clubId);
+          allow write: if false; // Admin SDK only
+        }
       }
 
+      // SECURITY FIX: matchStats restricted to club members only.
+      // Previously readable by any signed-in user.
+      // Now only admins and players of THIS club can read match statistics.
       match /matchStats/{statId} {
         allow read: if isAdminOfClub(clubId) || isPlayerOfClub(clubId);
         allow write: if isAdminOfClub(clubId);
       }
 
+      // SECURITY FIX: messages collection — admin-only read/write.
+      // Previously had no security rules (unprotected).
+      // Now only admins of THIS club can read and write messages.
       match /messages/{messageId} {
         allow read, write: if isAdminOfClub(clubId);
+      }
+
+      // Mail collection: used by Firebase "Trigger Email from Firestore" extension.
+      // Written by Admin SDK only when generating invite emails.
+      match /mail/{mailId} {
+        allow read: if isAdminOfClub(clubId);
+        allow write: if false; // Admin SDK only
+      }
+
+      // Audit log: tracks critical admin actions (player deletion, event cancellation, etc.).
+      // Read-only for admins/secretaries; written exclusively by Admin SDK.
+      match /auditLog/{logId} {
+        allow read: if isAdminOfClub(clubId);
+        allow write: if false; // Admin SDK only
+      }
+
+      // Analytics: aggregated metrics (notification opt-in rates, etc.).
+      // Written by Admin SDK, readable by admins.
+      match /analytics/{docId} {
+        allow read: if isAdminOfClub(clubId);
+        allow write: if false; // Admin SDK only
       }
     }
   }

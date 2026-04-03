@@ -2,6 +2,9 @@ import { adminDb } from '@/lib/firebase/admin'
 import { NextRequest, NextResponse } from 'next/server'
 import { FieldValue } from 'firebase-admin/firestore'
 import { CLUB_ID } from '@/lib/config'
+// Note: auth/invite uses static CLUB_ID since it's an unauthenticated endpoint
+// (invite tokens are verified by hash, not session). In multi-tenant mode,
+// the clubId would need to be embedded in the invite URL itself.
 
 async function sha256(text: string): Promise<string> {
   const { createHash } = await import('crypto')

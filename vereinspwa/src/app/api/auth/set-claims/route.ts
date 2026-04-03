@@ -4,6 +4,7 @@
  * playerUids/{uid} → { playerId } mapping needed by Firestore Security Rules.
  */
 import { adminAuth, adminDb } from '@/lib/firebase/admin'
+import { getClubIdFromSession } from '@/lib/firebase/getClubIdFromSession'
 import { CLUB_ID } from '@/lib/config'
 import { FieldValue } from 'firebase-admin/firestore'
 import { cookies } from 'next/headers'
@@ -20,8 +21,12 @@ export async function POST(request: NextRequest) {
 
     const decoded = await adminAuth.verifyIdToken(idToken)
 
+    // For set-claims, we use the static CLUB_ID since no session exists yet.
+    // In multi-tenant mode, the clubId would come from the invite token's associated club.
+    const clubId = CLUB_ID
+
     // Cross-check UID matches player doc
-    const playerRef = adminDb.collection('clubs').doc(CLUB_ID).collection('players').doc(playerId)
+    const playerRef = adminDb.collection('clubs').doc(clubId).collection('players').doc(playerId)
     const playerSnap = await playerRef.get()
     if (!playerSnap.exists) return NextResponse.json({ error: 'Spieler nicht gefunden' }, { status: 404 })
 
@@ -33,13 +38,13 @@ export async function POST(request: NextRequest) {
     // Set Custom Claims
     await adminAuth.setCustomUserClaims(decoded.uid, {
       role: 'player',
-      clubId: CLUB_ID,
+      clubId,
       playerId,
     })
 
     // Write playerUids mapping – required for Security Rules (isPlayerOfClub check)
     await adminDb
-      .collection('clubs').doc(CLUB_ID)
+      .collection('clubs').doc(clubId)
       .collection('playerUids').doc(decoded.uid)
       .set({ playerId, createdAt: FieldValue.serverTimestamp() })
 

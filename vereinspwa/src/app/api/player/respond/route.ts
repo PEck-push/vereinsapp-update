@@ -11,12 +11,12 @@
  * Body: { eventId: string, status: 'accepted' | 'declined', declineCategory?: string, reason?: string }
  */
 import { adminAuth, adminDb } from '@/lib/firebase/admin'
-import { CLUB_ID } from '@/lib/config'
+import { getClubIdFromSession } from '@/lib/firebase/getClubIdFromSession'
 import { FieldValue } from 'firebase-admin/firestore'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
 
-async function getPlayerFromSession(): Promise<{ uid: string; playerId: string } | null> {
+async function getPlayerFromSession(): Promise<{ uid: string; playerId: string; clubId: string } | null> {
   const cookieStore = await cookies()
   const sessionCookie = cookieStore.get('__session')?.value
   if (!sessionCookie) return null
@@ -24,27 +24,29 @@ async function getPlayerFromSession(): Promise<{ uid: string; playerId: string }
   try {
     const decoded = await adminAuth.verifySessionCookie(sessionCookie, true)
     const uid = decoded.uid
+    const clubId = await getClubIdFromSession()
+    if (!clubId) return null
 
     // Look up playerUids mapping first (fast)
     const mappingSnap = await adminDb
-      .collection('clubs').doc(CLUB_ID)
+      .collection('clubs').doc(clubId)
       .collection('playerUids').doc(uid)
       .get()
 
     if (mappingSnap.exists) {
-      return { uid, playerId: mappingSnap.data()!.playerId }
+      return { uid, playerId: mappingSnap.data()!.playerId, clubId }
     }
 
     // Fallback: query players by uid
     const snap = await adminDb
-      .collection('clubs').doc(CLUB_ID)
+      .collection('clubs').doc(clubId)
       .collection('players')
       .where('uid', '==', uid)
       .limit(1)
       .get()
 
     if (snap.empty) return null
-    return { uid, playerId: snap.docs[0].id }
+    return { uid, playerId: snap.docs[0].id, clubId }
   } catch {
     return null
   }
@@ -69,7 +71,7 @@ export async function POST(request: NextRequest) {
 
     // Verify the event exists and is still open
     const eventRef = adminDb
-      .collection('clubs').doc(CLUB_ID)
+      .collection('clubs').doc(player.clubId)
       .collection('events').doc(eventId)
     const eventSnap = await eventRef.get()
 
@@ -86,7 +88,7 @@ export async function POST(request: NextRequest) {
     const eventTeamIds: string[] = eventData.teamIds ?? []
     if (eventTeamIds.length > 0) {
       const playerSnap = await adminDb
-        .collection('clubs').doc(CLUB_ID)
+        .collection('clubs').doc(player.clubId)
         .collection('players').doc(player.playerId)
         .get()
 

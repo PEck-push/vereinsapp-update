@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   AlertCircle, ArrowDownRight, Bell, CalendarDays, Loader2, MapPin,
-  ShieldAlert, TrendingUp, Trophy, UserCheck, Users,
+  PieChartIcon, ShieldAlert, TrendingUp, Trophy, UserCheck, Users,
 } from 'lucide-react'
 import { collection, getDocs, query, where, orderBy, Timestamp } from 'firebase/firestore'
 import { db } from '@/lib/firebase/client'
@@ -188,7 +188,10 @@ export default function DashboardPage() {
       {/* Zone 4: Trainingskaiser + Trainingsmuffel */}
       <TrainingLeaderboard players={myPlayers} myTeamIds={myTeamIds} isAllTeams={isAllTeams} />
 
-      {/* Zone 5: Offene Rückmeldungen */}
+      {/* Zone 5: Absagegründe Verteilung */}
+      <DeclineReasonsWidget events={myUpcomingEvents} />
+
+      {/* Zone 6: Offene Rückmeldungen */}
       <div className="bg-white rounded-lg border p-5" style={{ borderRadius: '8px' }}>
         <div className="flex items-center gap-2 mb-4">
           <Bell className="w-4 h-4 text-gray-400" />
@@ -432,6 +435,90 @@ function WeekStrip({ events, teamMap }: { events: ClubEvent[]; teamMap: Map<stri
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// ─── Decline Reasons Widget ──────────────────────────────────────────────────
+function DeclineReasonsWidget({ events }: { events: ClubEvent[] }) {
+  const [data, setData] = useState<{ name: string; value: number; color: string }[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const DECLINE_LABELS: Record<string, string> = {
+    injury: 'Verletzung',
+    work: 'Arbeit',
+    private: 'Privates',
+    other: 'Sonstiges',
+  }
+  const DECLINE_COLORS: Record<string, string> = {
+    injury: '#EF4444',
+    work: '#3B82F6',
+    private: '#8B5CF6',
+    other: '#6B7280',
+  }
+
+  useEffect(() => {
+    async function load() {
+      const counts: Record<string, number> = {}
+      try {
+        for (const event of events.slice(0, 10)) {
+          const snap = await getDocs(collection(db, 'clubs', CLUB_ID, 'events', event.id, 'responses'))
+          snap.docs.forEach(d => {
+            const data = d.data()
+            if (data.status === 'declined' && data.declineCategory) {
+              counts[data.declineCategory] = (counts[data.declineCategory] ?? 0) + 1
+            }
+          })
+        }
+      } catch { /* ignore */ }
+
+      const chartData = Object.entries(counts)
+        .map(([key, value]) => ({
+          name: DECLINE_LABELS[key] ?? key,
+          value,
+          color: DECLINE_COLORS[key] ?? '#6B7280',
+        }))
+        .sort((a, b) => b.value - a.value)
+
+      setData(chartData)
+      setLoading(false)
+    }
+
+    if (events.length > 0) load()
+    else setLoading(false)
+  }, [events])
+
+  if (loading) return <Skeleton className="h-48 rounded-lg" />
+  if (data.length === 0) return null
+
+  const total = data.reduce((sum, d) => sum + d.value, 0)
+
+  return (
+    <div className="bg-white rounded-lg border p-5" style={{ borderRadius: '8px' }}>
+      <div className="flex items-center gap-2 mb-4">
+        <PieChartIcon className="w-4 h-4 text-gray-400" />
+        <h2 className="text-sm font-semibold text-gray-700" style={{ fontFamily: 'Outfit, sans-serif' }}>
+          Absagegründe — kommende Termine
+        </h2>
+      </div>
+      <div className="flex items-center gap-6">
+        {/* Simple visual bars instead of Recharts PieChart to avoid import weight */}
+        <div className="flex-1 space-y-2">
+          {data.map(d => (
+            <div key={d.name} className="flex items-center gap-3">
+              <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+              <span className="text-sm text-gray-700 flex-1">{d.name}</span>
+              <div className="w-24 h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full"
+                  style={{ width: `${Math.round((d.value / total) * 100)}%`, backgroundColor: d.color }}
+                />
+              </div>
+              <span className="text-sm font-semibold text-gray-600 w-8 text-right">{d.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }

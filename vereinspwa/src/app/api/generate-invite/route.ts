@@ -11,7 +11,9 @@
  * The plain token is returned once — only the SHA-256 hash is stored in Firestore.
  */
 import { adminAuth, adminDb } from '@/lib/firebase/admin'
-import { CLUB_ID, APP_URL } from '@/lib/config'
+import { writeAuditLog } from '@/lib/firebase/auditLog'
+import { getClubIdFromSession } from '@/lib/firebase/getClubIdFromSession'
+import { APP_URL } from '@/lib/config'
 import { FieldValue } from 'firebase-admin/firestore'
 import { createHash, randomBytes } from 'crypto'
 import { cookies } from 'next/headers'
@@ -33,14 +35,16 @@ async function verifyAdmin(): Promise<string | null> {
     if (role && ADMIN_ROLES.has(role)) return uid
 
     // Fallback: check Firestore adminUsers (for manually created admins)
+    const clubId = await getClubIdFromSession()
+    if (!clubId) return null
     const adminDoc = await adminDb
-      .collection('clubs').doc(CLUB_ID)
+      .collection('clubs').doc(clubId)
       .collection('adminUsers').doc(uid)
       .get()
     if (adminDoc.exists) {
       const docRole = adminDoc.data()?.role as string
       if (ADMIN_ROLES.has(docRole)) {
-        await adminAuth.setCustomUserClaims(uid, { role: docRole, clubId: CLUB_ID })
+        await adminAuth.setCustomUserClaims(uid, { role: docRole, clubId })
         return uid
       }
     }
@@ -52,9 +56,13 @@ async function verifyAdmin(): Promise<string | null> {
 }
 
 export async function POST(request: NextRequest) {
-  if (!(await verifyAdmin())) {
+  const adminUid = await verifyAdmin()
+  if (!adminUid) {
     return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 })
   }
+
+  const clubId = await getClubIdFromSession()
+  if (!clubId) return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 })
 
   try {
     const { playerId } = await request.json()
@@ -66,7 +74,7 @@ export async function POST(request: NextRequest) {
     // Verify player exists
     const playerRef = adminDb
       .collection('clubs')
-      .doc(CLUB_ID)
+      .doc(clubId)
       .collection('players')
       .doc(playerId)
 
@@ -101,11 +109,56 @@ export async function POST(request: NextRequest) {
 
     const inviteUrl = `${APP_URL}/invite/${token}`
 
+    // Send invitation email via Firebase "Trigger Email from Firestore" extension (non-blocking)
+    let emailSent = false
+    if (playerData.email) {
+      try {
+        // Load club name for email template
+        const clubSnap = await adminDb.collection('clubs').doc(clubId).get()
+        const clubName = clubSnap.data()?.name ?? 'Verein'
+
+        const expiryFormatted = expiry.toLocaleDateString('de-AT', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+
+        await adminDb.collection('clubs').doc(clubId).collection('mail').add({
+          to: playerData.email,
+          template: {
+            name: 'invite',
+            data: {
+              playerName: playerData.firstName,
+              clubName,
+              inviteUrl,
+              expiresAt: expiryFormatted,
+            },
+          },
+        })
+        emailSent = true
+      } catch (emailError) {
+        console.error('[generate-invite] Email sending failed (non-blocking):', emailError)
+      }
+    }
+
+    // Audit log (non-blocking — fire and forget)
+    writeAuditLog(clubId, {
+      action: 'invite.generate',
+      performedBy: adminUid,
+      targetId: playerId,
+      targetType: 'player',
+      details: `Einladung für ${playerData.firstName} ${playerData.lastName}`,
+    })
+
     return NextResponse.json({
       token,
       inviteUrl,
       expiresAt: expiry.toISOString(),
       playerName: `${playerData.firstName} ${playerData.lastName}`,
+      playerEmail: playerData.email,
+      emailSent,
     })
   } catch (error) {
     console.error('[generate-invite POST]', error)
@@ -127,6 +180,9 @@ export async function PUT(request: NextRequest) {
   if (!(await verifyAdmin())) {
     return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 })
   }
+
+  const clubId = await getClubIdFromSession()
+  if (!clubId) return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 })
 
   try {
     const { playerIds } = await request.json()
@@ -155,7 +211,7 @@ export async function PUT(request: NextRequest) {
       try {
         const playerRef = adminDb
           .collection('clubs')
-          .doc(CLUB_ID)
+          .doc(clubId)
           .collection('players')
           .doc(playerId)
 

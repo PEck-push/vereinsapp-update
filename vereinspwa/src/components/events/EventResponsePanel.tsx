@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { useEventResponses, useEvents } from '@/lib/hooks/useEvents'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { PlayerAvatar } from '@/components/ui/club-avatar'
 import { Loader2, Bell, MoreHorizontal, Check, X } from 'lucide-react'
 import {
   DropdownMenu,
@@ -173,12 +174,7 @@ function PlayerRow({
   return (
     <div className="py-2">
       <div className="flex items-center gap-3">
-        <div
-          className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0"
-          style={{ backgroundColor: '#1a1a2e' }}
-        >
-          {player.firstName[0]}{player.lastName[0]}
-        </div>
+        <PlayerAvatar firstName={player.firstName} lastName={player.lastName} size={28} />
         <span className="text-sm text-gray-800 flex-1">
           {player.firstName} {player.lastName}
         </span>

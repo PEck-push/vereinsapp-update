@@ -7,7 +7,7 @@
  * Returns: { results: Array<{ teamName, success, error? }> }
  */
 import { adminAuth, adminDb } from '@/lib/firebase/admin'
-import { CLUB_ID } from '@/lib/config'
+import { getClubIdFromSession } from '@/lib/firebase/getClubIdFromSession'
 import { Timestamp } from 'firebase-admin/firestore'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
@@ -22,7 +22,9 @@ async function verifyAdmin(): Promise<boolean> {
   try {
     const decoded = await adminAuth.verifySessionCookie(session, true)
     if (decoded.role && ADMIN_ROLES.has(decoded.role as string)) return true
-    const adminDoc = await adminDb.collection('clubs').doc(CLUB_ID).collection('adminUsers').doc(decoded.uid).get()
+    const cId = await getClubIdFromSession()
+    if (!cId) return false
+    const adminDoc = await adminDb.collection('clubs').doc(cId).collection('adminUsers').doc(decoded.uid).get()
     return adminDoc.exists && ADMIN_ROLES.has(adminDoc.data()?.role)
   } catch { return false }
 }
@@ -57,8 +59,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'eventId und groupIds[] benötigt' }, { status: 400 })
     }
 
+    const clubId = await getClubIdFromSession()
+    if (!clubId) return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 })
+
     // Load event
-    const eventSnap = await adminDb.collection('clubs').doc(CLUB_ID).collection('events').doc(eventId).get()
+    const eventSnap = await adminDb.collection('clubs').doc(clubId).collection('events').doc(eventId).get()
     if (!eventSnap.exists) {
       return NextResponse.json({ error: 'Event nicht gefunden' }, { status: 404 })
     }
@@ -66,7 +71,7 @@ export async function POST(request: NextRequest) {
     const startDate = (ev.startDate as Timestamp).toDate()
 
     // Load responses
-    const respSnap = await adminDb.collection('clubs').doc(CLUB_ID).collection('events').doc(eventId).collection('responses').get()
+    const respSnap = await adminDb.collection('clubs').doc(clubId).collection('events').doc(eventId).collection('responses').get()
 
     // Load player names for responses
     const playerIds = respSnap.docs.map(d => d.id)
@@ -75,7 +80,7 @@ export async function POST(request: NextRequest) {
       const batch = playerIds.slice(i, i + 30)
       if (!batch.length) continue
       const { FieldPath } = await import('firebase-admin/firestore')
-      const ps = await adminDb.collection('clubs').doc(CLUB_ID).collection('players')
+      const ps = await adminDb.collection('clubs').doc(clubId).collection('players')
         .where(FieldPath.documentId(), 'in', batch).get()
       ps.docs.forEach(d => { names[d.id] = `${d.data().firstName} ${d.data().lastName?.[0] ?? ''}.` })
     }
@@ -109,7 +114,7 @@ export async function POST(request: NextRequest) {
     ]]
 
     // Load team names for group mapping
-    const teamsSnap = await adminDb.collection('clubs').doc(CLUB_ID).collection('teams').get()
+    const teamsSnap = await adminDb.collection('clubs').doc(clubId).collection('teams').get()
     const teamsByGroupId: Record<number, string> = {}
     teamsSnap.docs.forEach(d => {
       const gId = d.data().telegramGroupId

@@ -4,18 +4,21 @@ import { useState, useMemo } from 'react'
 import { useTeams } from '@/lib/hooks/useTeams'
 import { usePlayers } from '@/lib/hooks/usePlayers'
 import { useMatchStatsForTeam, computePlayerGameStats } from '@/lib/hooks/useMatchStats'
+import { exportCSV } from '@/lib/utils/csv'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { BarChart2 } from 'lucide-react'
+import { BarChart2, Download } from 'lucide-react'
 import type { Team } from '@/lib/types'
 
-type Season = 'current' | 'last' | 'all'
+type Season = 'current' | 'last' | 'last2years' | 'all'
 
 const SEASON_OPTIONS: { value: Season; label: string }[] = [
   { value: 'current', label: 'Diese Saison' },
   { value: 'last', label: 'Letzte Saison' },
-  { value: 'all', label: 'Alle' },
+  { value: 'last2years', label: 'Letzte 2 Jahre' },
+  { value: 'all', label: 'Alle Saisons' },
 ]
 
 export default function GamesStatsPage() {
@@ -93,6 +96,24 @@ function GameStatsTable({ teamId, season, team }: { teamId: string; season: Seas
 
   const sortIcon = (col: typeof sortCol) => sortCol === col ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''
 
+  function handleExport() {
+    const rows = sorted.map(s => ({
+      Vorname: s.player.firstName,
+      Nachname: s.player.lastName,
+      Spiele: s.games,
+      Startelf: s.starters,
+      Eingewechselt: s.subs,
+      Minuten: s.minutes,
+      Tore: s.goals,
+      Assists: s.assists,
+      'Gelbe Karten': s.yellowCards,
+      'Rote Karten': s.redCards,
+    }))
+    const date = new Date().toISOString().split('T')[0]
+    const teamName = team?.name.toLowerCase().replace(/\s+/g, '-') ?? 'team'
+    exportCSV(rows, `spieleinsaetze-${teamName}-${date}.csv`)
+  }
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -113,9 +134,15 @@ function GameStatsTable({ teamId, season, team }: { teamId: string; season: Seas
 
   return (
     <div className="bg-white rounded-lg border overflow-hidden" style={{ borderRadius: '8px' }}>
-      <div className="px-4 py-3 border-b bg-gray-50 flex items-center gap-2">
-        <span className="w-3 h-3 rounded-full" style={{ backgroundColor: teamColor }} />
-        <span className="text-sm text-gray-500">{matchStats.length} Spiele · {activePlayers.length} Spieler</span>
+      <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="w-3 h-3 rounded-full" style={{ backgroundColor: teamColor }} />
+          <span className="text-sm text-gray-500">{matchStats.length} Spiele · {activePlayers.length} Spieler</span>
+        </div>
+        <Button size="sm" variant="outline" onClick={handleExport}>
+          <Download className="w-3.5 h-3.5 mr-1.5" />
+          CSV
+        </Button>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">

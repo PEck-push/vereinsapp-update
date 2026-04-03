@@ -24,13 +24,16 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Controller } from 'react-hook-form'
-import { Loader2, Pencil, Plus, Trash2, Users } from 'lucide-react'
+import { Loader2, Pencil, Plus, RefreshCw, Trash2, Users } from 'lucide-react'
+import { toast } from '@/components/ui/toaster'
 import type { Team } from '@/lib/types'
 
 const teamSchema = z.object({
   name: z.string().min(2, 'Mindestens 2 Zeichen'),
   category: z.enum(['senior', 'youth', 'ladies', 'other']),
   color: z.string().min(4, 'Farbe wählen'),
+  oefblUrl: z.string().url('Ungültige URL').optional().or(z.literal('')),
+  oefblTeamShortname: z.string().optional().or(z.literal('')),
 })
 
 type TeamFormValues = z.infer<typeof teamSchema>
@@ -50,6 +53,7 @@ export default function TeamsPage() {
   const [editingTeam, setEditingTeam] = useState<Team | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Team | null>(null)
+  const [importingTeamId, setImportingTeamId] = useState<string | null>(null)
 
   const {
     register,
@@ -64,23 +68,58 @@ export default function TeamsPage() {
 
   function openCreate() {
     setEditingTeam(null)
-    reset({ name: '', category: 'senior', color: '#1a1a2e' })
+    reset({ name: '', category: 'senior', color: '#1a1a2e', oefblUrl: '', oefblTeamShortname: '' })
     setDialogOpen(true)
   }
 
   function openEdit(team: Team) {
     setEditingTeam(team)
-    reset({ name: team.name, category: team.category, color: team.color })
+    reset({ name: team.name, category: team.category, color: team.color, oefblUrl: team.oefblUrl ?? '', oefblTeamShortname: team.oefblTeamShortname ?? '' })
     setDialogOpen(true)
   }
 
   async function onSubmit(data: TeamFormValues) {
+    const { oefblUrl, oefblTeamShortname, ...coreData } = data
+    const teamData = {
+      ...coreData,
+      ...(oefblUrl && { oefblUrl }),
+      ...(oefblTeamShortname && { oefblTeamShortname }),
+    }
+
     if (editingTeam) {
-      await updateTeam(editingTeam.id, data)
+      await updateTeam(editingTeam.id, teamData)
     } else {
-      await addTeam(data)
+      await addTeam(teamData)
     }
     setDialogOpen(false)
+  }
+
+  async function handleOefblImport(team: Team) {
+    if (!team.oefblUrl) {
+      toast.error('Keine ÖFBL-URL', 'Bitte zuerst die ÖFBL-URL im Team hinterlegen.')
+      return
+    }
+    setImportingTeamId(team.id)
+    try {
+      const res = await fetch('/api/oefbl/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamId: team.id, oefblUrl: team.oefblUrl, clubName: '' }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error('Import fehlgeschlagen', data.error)
+      } else {
+        toast.success(
+          'Spielplan importiert',
+          `${data.imported} Spiele importiert, ${data.skipped} übersprungen (Duplikat)`
+        )
+      }
+    } catch {
+      toast.error('Netzwerkfehler', 'Server nicht erreichbar.')
+    } finally {
+      setImportingTeamId(null)
+    }
   }
 
   async function handleDelete(team: Team) {
@@ -154,6 +193,22 @@ export default function TeamsPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-1">
+                  {team.oefblUrl && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleOefblImport(team)}
+                      disabled={importingTeamId === team.id}
+                      className="h-8 w-8 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+                      title="Spielplan importieren"
+                    >
+                      {importingTeamId === team.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-4 h-4" />
+                      )}
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -230,6 +285,31 @@ export default function TeamsPage() {
                 <span className="text-sm text-gray-500">
                   Wird in der App als Akzentfarbe verwendet
                 </span>
+              </div>
+            </div>
+
+            {/* ÖFBL Integration */}
+            <div className="border-t pt-4 mt-4 space-y-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">ÖFBL Integration</p>
+              <div className="space-y-1.5">
+                <Label htmlFor="oefblUrl">ÖFBL Spiele-URL</Label>
+                <Input
+                  id="oefblUrl"
+                  {...register('oefblUrl')}
+                  placeholder="https://vereine.oefb.at/..."
+                  className="text-xs"
+                />
+                {errors.oefblUrl && <p className="text-xs text-red-500">{errors.oefblUrl.message}</p>}
+                <p className="text-[10px] text-gray-400">z.B. https://vereine.oefb.at/vereinsname/Mannschaften/Saison-2025-26/KM/Spiele</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="oefblShortname">ÖFBL Team-Kürzel</Label>
+                <Input
+                  id="oefblShortname"
+                  {...register('oefblTeamShortname')}
+                  placeholder="z.B. KM, Res, U17"
+                  className="w-32"
+                />
               </div>
             </div>
 

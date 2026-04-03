@@ -23,6 +23,8 @@ interface InviteResult {
   playerName: string
   inviteUrl: string
   expiresAt?: string
+  playerEmail?: string
+  emailSent?: boolean
 }
 
 interface InviteLinkDialogProps {
@@ -118,6 +120,11 @@ function SingleInvite({ invite }: { invite: InviteResult }) {
         <p className="text-sm text-green-800">
           Einladung für <strong>{invite.playerName}</strong> wurde erstellt.
         </p>
+        {invite.emailSent && invite.playerEmail && (
+          <p className="text-xs text-green-600 mt-1">
+            ✉️ E-Mail wird gesendet an {invite.playerEmail}
+          </p>
+        )}
       </div>
 
       {/* Link display + copy */}

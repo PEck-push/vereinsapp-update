@@ -22,6 +22,10 @@ export interface Team {
   color: string
   /** Telegram group chat ID (set via /setup command in the group) */
   telegramGroupId?: number
+  /** ÖFBL Spiele-Seite URL for automatic schedule import */
+  oefblUrl?: string
+  /** ÖFBL team shortname (e.g. "KM", "Res", "U17") */
+  oefblTeamShortname?: string
   createdAt: Date
 }
 
@@ -125,6 +129,9 @@ export interface ClubEvent {
    */
   recurrenceRule?: RecurrenceRule
 
+  /** ÖFBL match identifier for duplicate prevention during import */
+  oefblMatchId?: string
+
   /** Telegram message references for live-updating event posts */
   telegramMessages?: Record<string, { messageId: number; chatId: number }>
 
@@ -164,5 +171,7 @@ export interface MatchStat {
   homeOrAway: 'home' | 'away'
   result: { goalsFor: number; goalsAgainst: number }
   playerMinutes: PlayerMinutes[]
+  /** Source of the match stat: manual entry or automatic ÖFBL sync */
+  source?: 'manual' | 'oefbl_auto'
   createdAt: Date
 }

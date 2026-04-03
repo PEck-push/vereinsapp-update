@@ -11,6 +11,7 @@ import {
   type TrainingEntry,
 } from '@/lib/hooks/useMatchStats'
 import { exportCSV } from '@/lib/utils/csv'
+import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import {
@@ -290,27 +291,47 @@ function TeamDetail({
             </ResponsiveContainer>
           </div>
 
-          {/* Chart 2: Spieler Ranking */}
+          {/* Chart 2: Spieler Ranking — Chart on sm+, List on mobile */}
           <div className="bg-white rounded-lg border p-5" style={{ borderRadius: '8px' }}>
             <h2 className="text-sm font-semibold text-gray-700 mb-4" style={{ fontFamily: 'Outfit, sans-serif' }}>
               Spieler-Ranking (Top 10)
             </h2>
-            <ResponsiveContainer width="100%" height={rankData.length * 36 + 20}>
-              <BarChart
-                data={rankData}
-                layout="vertical"
-                margin={{ top: 0, right: 60, bottom: 0, left: 60 }}
-              >
-                <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={80} />
-                <Tooltip formatter={(v: any) => [`${v}%`, 'Quote']} />
-                <Bar dataKey="quote" radius={[0, 3, 3, 0]} label={{ position: 'right', fontSize: 11 }}>
-                  {rankData.map((_, i) => (
-                    <Cell key={i} fill={i < 3 ? RANK_COLORS[i] : team.color} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            {/* Desktop: Horizontal BarChart */}
+            <div className="hidden sm:block">
+              <ResponsiveContainer width="100%" height={rankData.length * 36 + 20}>
+                <BarChart
+                  data={rankData}
+                  layout="vertical"
+                  margin={{ top: 0, right: 60, bottom: 0, left: 60 }}
+                >
+                  <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={80} />
+                  <Tooltip formatter={(v: any) => [`${v}%`, 'Quote']} />
+                  <Bar dataKey="quote" radius={[0, 3, 3, 0]} label={{ position: 'right', fontSize: 11 }}>
+                    {rankData.map((_, i) => (
+                      <Cell key={i} fill={i < 3 ? RANK_COLORS[i] : team.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            {/* Mobile: Sorted list */}
+            <div className="sm:hidden space-y-2">
+              {rankData.map((d, i) => (
+                <div key={d.name} className="flex items-center gap-3">
+                  <span className="w-6 text-xs font-bold text-center shrink-0" style={{ color: i < 3 ? RANK_COLORS[i] : '#6B7280' }}>
+                    {i + 1}
+                  </span>
+                  <span className="text-sm text-gray-800 flex-1 truncate">{d.name}</span>
+                  <div className="w-20 h-2 bg-gray-100 rounded-full overflow-hidden shrink-0">
+                    <div className="h-full rounded-full" style={{ width: `${d.quote}%`, backgroundColor: i < 3 ? RANK_COLORS[i] : team.color }} />
+                  </div>
+                  <span className="text-sm font-semibold w-10 text-right" style={{ color: i < 3 ? RANK_COLORS[i] : '#374151' }}>
+                    {d.quote}%
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Table */}
@@ -357,6 +378,9 @@ function TeamDetail({
                     <tr key={s.player.id} className="border-b last:border-0 hover:bg-gray-50">
                       <td className="px-4 py-2.5 font-medium text-gray-900">
                         {s.player.firstName} {s.player.lastName}
+                        {s.player.status === 'injured' && (
+                          <Badge variant="warning" className="ml-2 text-[10px]">Verletzt</Badge>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 text-center text-gray-600">{s.total}</td>
                       <td className="px-3 py-2.5 text-center text-gray-600">{s.attended}</td>

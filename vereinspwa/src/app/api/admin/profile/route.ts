@@ -7,7 +7,7 @@
  * Body: { displayName: "Max Obmann" }
  */
 import { adminAuth, adminDb } from '@/lib/firebase/admin'
-import { CLUB_ID } from '@/lib/config'
+import { getClubIdFromSession } from '@/lib/firebase/getClubIdFromSession'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
 

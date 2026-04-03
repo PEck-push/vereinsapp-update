@@ -9,7 +9,7 @@
  * Only accessible by admins.
  */
 import { adminAuth, adminDb } from '@/lib/firebase/admin'
-import { CLUB_ID } from '@/lib/config'
+import { getClubIdFromSession } from '@/lib/firebase/getClubIdFromSession'
 import { FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
@@ -33,16 +33,17 @@ async function verifyAdmin(): Promise<boolean> {
 
     // Fallback: check Firestore adminUsers collection
     // (needed when admin was created manually in Firebase Console)
+    const cId = await getClubIdFromSession()
+    if (!cId) return false
     const adminDoc = await adminDb
-      .collection('clubs').doc(CLUB_ID)
+      .collection('clubs').doc(cId)
       .collection('adminUsers').doc(uid)
       .get()
 
     if (adminDoc.exists) {
       const role = adminDoc.data()?.role as string
       if (ADMIN_ROLES.has(role)) {
-        // Set custom claims for future requests so this fallback isn't needed again
-        await adminAuth.setCustomUserClaims(uid, { role, clubId: CLUB_ID })
+        await adminAuth.setCustomUserClaims(uid, { role, clubId: cId })
         return true
       }
     }
@@ -83,14 +84,17 @@ export async function POST() {
     return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 })
   }
 
+  const clubId = await getClubIdFromSession()
+  if (!clubId) return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 })
+
   try {
     // Check if seed data already exists
-    const existingCheck = await adminDb.collection('clubs').doc(CLUB_ID).collection('teams').where('_seed', '==', true).limit(1).get()
+    const existingCheck = await adminDb.collection('clubs').doc(clubId).collection('teams').where('_seed', '==', true).limit(1).get()
     if (!existingCheck.empty) {
       return NextResponse.json({ error: 'Testdaten existieren bereits. Bitte zuerst löschen.' }, { status: 409 })
     }
 
-    const clubRef = adminDb.collection('clubs').doc(CLUB_ID)
+    const clubRef = adminDb.collection('clubs').doc(clubId)
     const now = new Date()
 
     // 1. Update club doc with seed mode flag
@@ -99,7 +103,7 @@ export async function POST() {
     // 2. Teams
     const teamIds: string[] = []
     for (const t of TEAMS) {
-      const ref = await clubRef.collection('teams').add({ ...M, ...t, clubId: CLUB_ID, createdAt: FieldValue.serverTimestamp() })
+      const ref = await clubRef.collection('teams').add({ ...M, ...t, clubId, createdAt: FieldValue.serverTimestamp() })
       teamIds.push(ref.id)
     }
 
@@ -125,7 +129,7 @@ export async function POST() {
           dateOfBirth: new Date(now.getFullYear() - rand(ti === 2 ? 14 : 18, ti === 2 ? 17 : 35), rand(0,11), rand(1,28)),
           jerseyNumber: i + 1, position: pick(POS), teamIds: tids,
           status: Math.random() < 0.08 ? 'injured' : 'active',
-          clubId: CLUB_ID, accountStatus: Math.random() < 0.7 ? 'active' : 'invited',
+          clubId, accountStatus: Math.random() < 0.7 ? 'active' : 'invited',
           inviteTokenUsed: false, fcmTokens: [], notificationPrefs: { push: true, email: true },
           createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         })
@@ -145,7 +149,7 @@ export async function POST() {
           const ref = await clubRef.collection('events').add({
             ...M, title: `Training ${TEAMS[ti].name}`, type: 'training', status: 'scheduled',
             startDate: Timestamp.fromDate(d), endDate: Timestamp.fromDate(setT(d, 19, 30)),
-            location: 'Sportplatz Hauptfeld', teamIds: [teamIds[ti]], clubId: CLUB_ID,
+            location: 'Sportplatz Hauptfeld', teamIds: [teamIds[ti]], clubId,
             responseCount: { accepted: 0, declined: 0, total: 0 },
             createdBy: 'seed', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
           })
@@ -161,7 +165,7 @@ export async function POST() {
         ...M, title: `Spiel vs. ${OPP[i]}`, type: 'match', status: 'scheduled',
         startDate: Timestamp.fromDate(d), endDate: Timestamp.fromDate(setT(d, 17, 0)),
         location: i % 2 === 0 ? 'Sportplatz Hauptfeld' : 'Auswärts',
-        teamIds: [teamIds[0]], clubId: CLUB_ID,
+        teamIds: [teamIds[0]], clubId,
         responseCount: { accepted: 0, declined: 0, total: 0 },
         createdBy: 'seed', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
       })
@@ -177,7 +181,7 @@ export async function POST() {
           await clubRef.collection('events').add({
             ...M, title: `Training ${TEAMS[ti].name}`, type: 'training', status: 'scheduled',
             startDate: Timestamp.fromDate(d), endDate: Timestamp.fromDate(setT(d, 19, 30)),
-            location: 'Sportplatz Hauptfeld', teamIds: [teamIds[ti]], clubId: CLUB_ID,
+            location: 'Sportplatz Hauptfeld', teamIds: [teamIds[ti]], clubId,
             responseCount: { accepted: 0, declined: 0, total: 0 },
             createdBy: 'seed', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
           })
@@ -186,8 +190,8 @@ export async function POST() {
     }
 
     // Club event + cancelled event
-    await clubRef.collection('events').add({ ...M, title: 'Saisoneröffnungsfeier', type: 'event', status: 'scheduled', startDate: Timestamp.fromDate(setT(addD(now, 14), 18, 0)), location: 'Vereinsheim', teamIds: [], clubId: CLUB_ID, responseCount: { accepted: 0, declined: 0, total: 0 }, createdBy: 'seed', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
-    await clubRef.collection('events').add({ ...M, title: 'Training (Platzsanierung)', type: 'training', status: 'cancelled', cancelReason: 'Platz wird saniert.', startDate: Timestamp.fromDate(setT(addD(now, 3), 18, 0)), teamIds: [teamIds[0]], clubId: CLUB_ID, responseCount: { accepted: 0, declined: 0, total: 0 }, createdBy: 'seed', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
+    await clubRef.collection('events').add({ ...M, title: 'Saisoneröffnungsfeier', type: 'event', status: 'scheduled', startDate: Timestamp.fromDate(setT(addD(now, 14), 18, 0)), location: 'Vereinsheim', teamIds: [], clubId, responseCount: { accepted: 0, declined: 0, total: 0 }, createdBy: 'seed', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
+    await clubRef.collection('events').add({ ...M, title: 'Training (Platzsanierung)', type: 'training', status: 'cancelled', cancelReason: 'Platz wird saniert.', startDate: Timestamp.fromDate(setT(addD(now, 3), 18, 0)), teamIds: [teamIds[0]], clubId, responseCount: { accepted: 0, declined: 0, total: 0 }, createdBy: 'seed', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
 
     // Responses on past events
     let respCount = 0
@@ -219,7 +223,7 @@ export async function POST() {
           ...tp.slice(0, 11).map(p => ({ playerId: p.id, minuteIn: 0, minuteOut: 90, isStarter: true, goals: Math.random() < 0.15 ? 1 : 0, assists: Math.random() < 0.1 ? 1 : 0, yellowCards: Math.random() < 0.15 ? 1 : 0, redCard: false })),
           ...tp.slice(11, 14).map(p => ({ playerId: p.id, minuteIn: rand(55, 75), minuteOut: 90, isStarter: false, goals: 0, assists: 0, yellowCards: 0, redCard: false })),
         ],
-        clubId: CLUB_ID, createdAt: Timestamp.fromDate(matchEvs[i].date),
+        clubId, createdAt: Timestamp.fromDate(matchEvs[i].date),
       })
     }
 
@@ -247,7 +251,9 @@ export async function DELETE() {
   }
 
   try {
-    const clubRef = adminDb.collection('clubs').doc(CLUB_ID)
+    const seedClubId = await getClubIdFromSession()
+    if (!seedClubId) return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 })
+    const clubRef = adminDb.collection('clubs').doc(seedClubId)
     const subs = ['players', 'teams', 'events', 'adminUsers', 'matchStats', 'messages']
     let total = 0
 

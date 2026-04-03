@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
-import { auth, db } from '@/lib/firebase/client'
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
+import { auth, db, storage } from '@/lib/firebase/client'
+import { invalidateClubAvatarCache } from '@/components/ui/club-avatar'
 import { CLUB_ID } from '@/lib/config'
 import { useTeams } from '@/lib/hooks/useTeams'
 import { SeedSettingsSection } from '@/components/layout/SeedModeBanner'
@@ -12,7 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { toast } from '@/components/ui/toaster'
-import { Camera, Check, ChevronRight, ClipboardCopy, ExternalLink, Loader2, RefreshCw, Shield, Trash2, Users } from 'lucide-react'
+import { Camera, Check, ChevronRight, ClipboardCopy, ExternalLink, FileSpreadsheet, Loader2, RefreshCw, Shield, ShieldCheck, Trash2, Users } from 'lucide-react'
 import Link from 'next/link'
 
 export default function SettingsPage() {
@@ -38,6 +40,8 @@ function SettingsNav() {
   const links = [
     { href: '/settings/teams', label: 'Mannschaften verwalten', description: `${teams.length} ${teams.length === 1 ? 'Mannschaft' : 'Mannschaften'} angelegt`, icon: Users, color: 'var(--club-primary, #1a1a2e)' },
     { href: '/settings/users', label: 'Benutzer & Rollen', description: 'Admins, Trainer, Funktionäre', icon: Shield, color: '#8B5CF6' },
+    { href: '/settings/import', label: 'Spieler importieren', description: 'CSV-Upload für Massenimport', icon: FileSpreadsheet, color: '#059669' },
+    { href: '/settings/audit-log', label: 'Audit-Log', description: 'Protokoll kritischer Aktionen', icon: ShieldCheck, color: '#DC2626' },
   ]
   return (
     <div className="space-y-2">
@@ -52,22 +56,26 @@ function SettingsNav() {
   )
 }
 
-async function fileToBase64(file: File, maxSize = 256): Promise<string> {
+async function compressImage(file: File, maxSize = 512): Promise<Blob> {
+  const isSvg = file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')
+  if (isSvg) return file
+
   return new Promise((resolve, reject) => {
     const img = new Image()
     const reader = new FileReader()
-    const isPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png')
-    const isSvg = file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')
-    if (isSvg) { reader.onload = () => resolve(reader.result as string); reader.onerror = () => reject(new Error('Datei konnte nicht gelesen werden')); reader.readAsDataURL(file); return }
     reader.onload = () => {
       img.onload = () => {
         let w = img.width, h = img.height
         if (w > maxSize || h > maxSize) { if (w > h) { h = Math.round(h * (maxSize / w)); w = maxSize } else { w = Math.round(w * (maxSize / h)); h = maxSize } }
         const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h; const ctx = canvas.getContext('2d')
         if (!ctx) { reject(new Error('Canvas not supported')); return }
-        if (!isPng) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h) }
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h)
         ctx.drawImage(img, 0, 0, w, h)
-        resolve(canvas.toDataURL(isPng ? 'image/png' : 'image/jpeg', isPng ? undefined : 0.85))
+        canvas.toBlob(
+          blob => blob ? resolve(blob) : reject(new Error('Compression failed')),
+          'image/jpeg',
+          0.85
+        )
       }
       img.onerror = () => reject(new Error('Bild konnte nicht geladen werden'))
       img.src = reader.result as string
@@ -96,11 +104,46 @@ function ClubProfileSection() {
   async function handleSave() { if (!db) return; setSaving(true); try { await setDoc(doc(db, 'clubs', CLUB_ID), { name: clubName, primaryColor, secondaryColor }, { merge: true }); toast.success('Vereinsprofil gespeichert') } catch { toast.error('Speichern fehlgeschlagen') } finally { setSaving(false) } }
 
   async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]; if (!file) return; if (!file.type.startsWith('image/')) { toast.error('Nur Bilddateien erlaubt'); return }; if (file.size > 5 * 1024 * 1024) { toast.error('Maximale Dateigröße: 5 MB'); return }; if (!db) return
-    setUploading(true); try { const base64 = await fileToBase64(file, 256); if (base64.length > 500000) { toast.error('Bild ist zu groß nach Komprimierung.'); return }; await setDoc(doc(db, 'clubs', CLUB_ID), { logoUrl: base64 }, { merge: true }); setLogoUrl(base64); toast.success('Logo gespeichert') } catch (err) { console.error('[Logo Upload]', err); toast.error('Logo konnte nicht gespeichert werden') } finally { setUploading(false); if (fileRef.current) fileRef.current.value = '' }
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) { toast.error('Nur Bilddateien erlaubt'); return }
+    if (file.size > 5 * 1024 * 1024) { toast.error('Maximale Dateigröße: 5 MB'); return }
+    if (!db || !storage) return
+
+    setUploading(true)
+    try {
+      const compressed = await compressImage(file, 512)
+      const isSvg = file.type === 'image/svg+xml'
+      const ext = isSvg ? 'svg' : 'jpg'
+      const storageRef = ref(storage, `clubs/${CLUB_ID}/logo.${ext}`)
+      await uploadBytes(storageRef, compressed, { contentType: isSvg ? 'image/svg+xml' : 'image/jpeg' })
+      const downloadUrl = await getDownloadURL(storageRef)
+
+      await setDoc(doc(db, 'clubs', CLUB_ID), { logoUrl: downloadUrl }, { merge: true })
+      setLogoUrl(downloadUrl)
+      invalidateClubAvatarCache()
+      toast.success('Logo gespeichert')
+    } catch (err) {
+      console.error('[Logo Upload]', err)
+      toast.error('Logo konnte nicht gespeichert werden')
+    } finally {
+      setUploading(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
   }
 
-  function handleRemoveLogo() { if (!db) return; setDoc(doc(db, 'clubs', CLUB_ID), { logoUrl: '' }, { merge: true }); setLogoUrl(null); toast.info('Logo entfernt') }
+  async function handleRemoveLogo() {
+    if (!db) return
+    // Try to delete from Storage (ignore errors for legacy base64 logos)
+    if (storage) {
+      try { await deleteObject(ref(storage, `clubs/${CLUB_ID}/logo.jpg`)) } catch { /* ok */ }
+      try { await deleteObject(ref(storage, `clubs/${CLUB_ID}/logo.svg`)) } catch { /* ok */ }
+    }
+    await setDoc(doc(db, 'clubs', CLUB_ID), { logoUrl: '' }, { merge: true })
+    setLogoUrl(null)
+    invalidateClubAvatarCache()
+    toast.info('Logo entfernt')
+  }
 
   if (!loaded) return null
 
@@ -116,7 +159,7 @@ function ClubProfileSection() {
             <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={uploading}>{uploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Camera className="w-4 h-4 mr-2" />}{logoUrl ? 'Logo ändern' : 'Logo hochladen'}</Button>
             {logoUrl && <Button variant="ghost" size="sm" onClick={handleRemoveLogo} className="text-red-500 hover:text-red-700 text-xs"><Trash2 className="w-3.5 h-3.5 mr-1" /> Entfernen</Button>}
           </div>
-          <p className="text-xs text-gray-400 mt-1">PNG (mit Transparenz), JPG oder SVG. Max 256×256.</p>
+          <p className="text-xs text-gray-400 mt-1">PNG, JPG oder SVG. Max 5 MB, wird auf 512×512 komprimiert.</p>
           <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/svg+xml" className="hidden" onChange={handleLogoUpload} />
         </div>
       </div>

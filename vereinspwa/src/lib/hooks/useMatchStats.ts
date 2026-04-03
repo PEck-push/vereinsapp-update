@@ -166,7 +166,7 @@ export interface PlayerGameStat {
   }[]
 }
 
-export function useMatchStatsForTeam(teamId: string | null, seasonFilter: 'current' | 'last' | 'all') {
+export function useMatchStatsForTeam(teamId: string | null, seasonFilter: 'current' | 'last' | 'all' | 'last2years') {
   const [stats, setStats] = useState<MatchStat[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -192,11 +192,9 @@ export function useMatchStatsForTeam(teamId: string | null, seasonFilter: 'curre
           const prevSeasonStart = now.getMonth() >= 7
             ? new Date(thisYear - 1, 7, 1)
             : new Date(thisYear - 2, 7, 1)
-          const prevSeasonEnd = now.getMonth() >= 7
-            ? new Date(thisYear, 7, 1)
-            : new Date(thisYear - 1, 7, 1)
-          // For simplicity, get all and filter in JS
           cutoff = prevSeasonStart
+        } else if (seasonFilter === 'last2years') {
+          cutoff = new Date(now.getFullYear() - 2, now.getMonth(), 1)
         }
 
         let q = query(

@@ -5,7 +5,7 @@
  * Only accessible by admins.
  */
 import { adminAuth, adminDb } from '@/lib/firebase/admin'
-import { CLUB_ID } from '@/lib/config'
+import { getClubIdFromSession } from '@/lib/firebase/getClubIdFromSession'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
@@ -33,7 +33,9 @@ export async function POST() {
     const token = randomBytes(32).toString('hex')
 
     // Store it in the club document
-    await adminDb.collection('clubs').doc(CLUB_ID).set(
+    const clubId = await getClubIdFromSession()
+    if (!clubId) return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 })
+    await adminDb.collection('clubs').doc(clubId).set(
       { settings: { icalToken: token } },
       { merge: true }
     )

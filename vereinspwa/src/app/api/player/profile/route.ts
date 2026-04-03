@@ -8,7 +8,7 @@
  * to prevent horizontal privilege escalation.
  */
 import { adminAuth, adminDb } from '@/lib/firebase/admin'
-import { CLUB_ID } from '@/lib/config'
+import { getClubIdFromSession } from '@/lib/firebase/getClubIdFromSession'
 import { FieldValue } from 'firebase-admin/firestore'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
@@ -22,11 +22,13 @@ async function getPlayerFromSession() {
   try {
     const decoded = await adminAuth.verifySessionCookie(sessionCookie, true)
     const uid = decoded.uid
+    const clubId = await getClubIdFromSession()
+    if (!clubId) return null
 
     // Find player doc by UID
     const snap = await adminDb
       .collection('clubs')
-      .doc(CLUB_ID)
+      .doc(clubId)
       .collection('players')
       .where('uid', '==', uid)
       .limit(1)
@@ -35,7 +37,7 @@ async function getPlayerFromSession() {
     if (snap.empty) return null
 
     const doc = snap.docs[0]
-    return { id: doc.id, ...doc.data() }
+    return { id: doc.id, clubId, ...doc.data() }
   } catch {
     return null
   }
@@ -81,7 +83,7 @@ export async function PATCH(request: NextRequest) {
 
     await adminDb
       .collection('clubs')
-      .doc(CLUB_ID)
+      .doc(player.clubId as string)
       .collection('players')
       .doc(player.id as string)
       .update(updates)

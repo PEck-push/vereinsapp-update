@@ -162,8 +162,8 @@ export function MatchReportSheet({ open, onClose, event, players, onSaved }: Mat
             <h3 className="text-sm font-semibold text-gray-700">Spieler-Einsätze</h3>
             <p className="text-xs text-gray-400">Hake Spieler ab, die am Spiel teilgenommen haben.</p>
 
-            <div className="space-y-1">
-              {/* Table Header */}
+            {/* Desktop: Table Grid (hidden on mobile) */}
+            <div className="hidden md:block space-y-1">
               <div className="grid text-xs text-gray-400 font-medium px-2 py-1" style={{
                 gridTemplateColumns: '24px 1fr 80px 60px 60px 44px 44px 36px 36px',
                 gap: '6px'
@@ -192,79 +192,90 @@ export function MatchReportSheet({ open, onClose, event, players, onSaved }: Mat
                     className={`grid items-center px-2 py-1.5 rounded-lg transition-colors ${isIncluded ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
                     style={{ gridTemplateColumns: '24px 1fr 80px 60px 60px 44px 44px 36px 36px', gap: '6px' }}
                   >
-                    {/* Include checkbox */}
-                    <Controller
-                      control={control}
-                      name={`playerRows.${idx}.include`}
-                      render={({ field: f }) => (
-                        <input type="checkbox" checked={f.value} onChange={f.onChange} className="w-4 h-4 rounded accent-[#e94560]" />
-                      )}
-                    />
-
-                    {/* Name */}
-                    <span className={`text-sm truncate ${isIncluded ? 'font-medium text-gray-900' : 'text-gray-500'}`}>
-                      {player.firstName} {player.lastName}
-                    </span>
-
-                    {/* Startelf */}
+                    <Controller control={control} name={`playerRows.${idx}.include`} render={({ field: f }) => (
+                      <input type="checkbox" checked={f.value} onChange={f.onChange} className="w-4 h-4 rounded accent-[#e94560]" />
+                    )} />
+                    <span className={`text-sm truncate ${isIncluded ? 'font-medium text-gray-900' : 'text-gray-500'}`}>{player.firstName} {player.lastName}</span>
                     <div className="flex justify-center">
-                      <Controller
-                        control={control}
-                        name={`playerRows.${idx}.isStarter`}
-                        render={({ field: f }) => (
-                          <input
-                            type="checkbox"
-                            checked={f.value}
-                            onChange={(e) => {
-                              f.onChange(e)
-                              if (e.target.checked) setValue(`playerRows.${idx}.minuteIn`, 0)
-                            }}
-                            disabled={!isIncluded}
-                            className="w-4 h-4 rounded accent-[#1a1a2e]"
-                          />
-                        )}
-                      />
+                      <Controller control={control} name={`playerRows.${idx}.isStarter`} render={({ field: f }) => (
+                        <input type="checkbox" checked={f.value} onChange={(e) => { f.onChange(e); if (e.target.checked) setValue(`playerRows.${idx}.minuteIn`, 0) }} disabled={!isIncluded} className="w-4 h-4 rounded accent-[#1a1a2e]" />
+                      )} />
                     </div>
-
-                    {/* Min von */}
-                    <Input
-                      type="number"
-                      min={0}
-                      max={89}
-                      className="h-7 text-xs text-center px-1"
-                      disabled={!isIncluded || isStarter}
-                      {...register(`playerRows.${idx}.minuteIn`)}
-                    />
-
-                    {/* Min bis */}
-                    <Input
-                      type="number"
-                      min={1}
-                      max={90}
-                      className="h-7 text-xs text-center px-1"
-                      disabled={!isIncluded}
-                      {...register(`playerRows.${idx}.minuteOut`)}
-                    />
-
-                    {/* Goals */}
+                    <Input type="number" min={0} max={89} className="h-7 text-xs text-center px-1" disabled={!isIncluded || isStarter} {...register(`playerRows.${idx}.minuteIn`)} />
+                    <Input type="number" min={1} max={90} className="h-7 text-xs text-center px-1" disabled={!isIncluded} {...register(`playerRows.${idx}.minuteOut`)} />
                     <Input type="number" min={0} max={20} className="h-7 text-xs text-center px-1" disabled={!isIncluded} {...register(`playerRows.${idx}.goals`)} />
-
-                    {/* Assists */}
                     <Input type="number" min={0} max={20} className="h-7 text-xs text-center px-1" disabled={!isIncluded} {...register(`playerRows.${idx}.assists`)} />
-
-                    {/* Yellow cards */}
                     <Input type="number" min={0} max={2} className="h-7 text-xs text-center px-1" disabled={!isIncluded} {...register(`playerRows.${idx}.yellowCards`)} />
-
-                    {/* Red card */}
                     <div className="flex justify-center">
-                      <Controller
-                        control={control}
-                        name={`playerRows.${idx}.redCard`}
-                        render={({ field: f }) => (
-                          <input type="checkbox" checked={f.value} onChange={f.onChange} disabled={!isIncluded} className="w-4 h-4 rounded accent-red-600" />
-                        )}
-                      />
+                      <Controller control={control} name={`playerRows.${idx}.redCard`} render={({ field: f }) => (
+                        <input type="checkbox" checked={f.value} onChange={f.onChange} disabled={!isIncluded} className="w-4 h-4 rounded accent-red-600" />
+                      )} />
                     </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Mobile: Card-based layout (visible only on small screens) */}
+            <div className="md:hidden space-y-2">
+              {fields.map((field, idx) => {
+                const player = players.find(p => p.id === field.playerId)
+                if (!player) return null
+
+                const isIncluded = watch(`playerRows.${idx}.include`)
+                const isStarter = watch(`playerRows.${idx}.isStarter`)
+
+                return (
+                  <div key={field.id} className={`rounded-lg border p-3 transition-colors ${isIncluded ? 'bg-blue-50 border-blue-200' : 'bg-white'}`}>
+                    {/* Player header with include checkbox */}
+                    <div className="flex items-center gap-2 mb-2">
+                      <Controller control={control} name={`playerRows.${idx}.include`} render={({ field: f }) => (
+                        <input type="checkbox" checked={f.value} onChange={f.onChange} className="w-4 h-4 rounded accent-[#e94560]" />
+                      )} />
+                      <span className={`text-sm flex-1 ${isIncluded ? 'font-medium text-gray-900' : 'text-gray-500'}`}>
+                        {player.firstName} {player.lastName}
+                      </span>
+                      <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                        <Controller control={control} name={`playerRows.${idx}.isStarter`} render={({ field: f }) => (
+                          <input type="checkbox" checked={f.value} onChange={(e) => { f.onChange(e); if (e.target.checked) setValue(`playerRows.${idx}.minuteIn`, 0) }} disabled={!isIncluded} className="w-3.5 h-3.5 rounded accent-[#1a1a2e]" />
+                        )} />
+                        Startelf
+                      </label>
+                    </div>
+
+                    {/* Stats grid (only shown when included) */}
+                    {isIncluded && (
+                      <div className="grid grid-cols-3 gap-2 mt-2">
+                        <div>
+                          <label className="text-[10px] text-gray-400 block">Min von</label>
+                          <Input type="number" min={0} max={89} className="h-7 text-xs text-center" disabled={isStarter} {...register(`playerRows.${idx}.minuteIn`)} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-gray-400 block">Min bis</label>
+                          <Input type="number" min={1} max={90} className="h-7 text-xs text-center" {...register(`playerRows.${idx}.minuteOut`)} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-gray-400 block">⚽ Tore</label>
+                          <Input type="number" min={0} max={20} className="h-7 text-xs text-center" {...register(`playerRows.${idx}.goals`)} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-gray-400 block">🅰 Assists</label>
+                          <Input type="number" min={0} max={20} className="h-7 text-xs text-center" {...register(`playerRows.${idx}.assists`)} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-gray-400 block">🟨 Gelb</label>
+                          <Input type="number" min={0} max={2} className="h-7 text-xs text-center" {...register(`playerRows.${idx}.yellowCards`)} />
+                        </div>
+                        <div className="flex items-end">
+                          <label className="flex items-center gap-1.5 text-xs text-gray-500 pb-1.5">
+                            <Controller control={control} name={`playerRows.${idx}.redCard`} render={({ field: f }) => (
+                              <input type="checkbox" checked={f.value} onChange={f.onChange} className="w-3.5 h-3.5 rounded accent-red-600" />
+                            )} />
+                            🟥 Rot
+                          </label>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )
               })}
