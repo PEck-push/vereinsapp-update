@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { collection, getDocs, orderBy, query, limit, startAfter, Timestamp, where } from 'firebase/firestore'
+import { collection, getDocs, orderBy, query, limit, startAfter, Timestamp, where, type QueryConstraint } from 'firebase/firestore'
 import { db } from '@/lib/firebase/client'
 import { CLUB_ID } from '@/lib/config'
 import { Button } from '@/components/ui/button'
@@ -48,15 +48,19 @@ export default function AuditLogPage() {
 
     try {
       const ref = collection(db, 'clubs', CLUB_ID, 'auditLog')
-      let constraints = [orderBy('timestamp', 'desc'), limit(PAGE_SIZE)]
+      const constraints: QueryConstraint[] = []
 
       if (filterAction !== 'all') {
-        constraints = [where('action', '==', filterAction), ...constraints]
+        constraints.push(where('action', '==', filterAction))
       }
+
+      constraints.push(orderBy('timestamp', 'desc'))
 
       if (append && lastDoc) {
         constraints.push(startAfter(lastDoc))
       }
+
+      constraints.push(limit(PAGE_SIZE))
 
       const q = query(ref, ...constraints)
       const snap = await getDocs(q)

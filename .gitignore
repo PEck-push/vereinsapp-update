@@ -1,6 +1,38 @@
+# Dependencies
 node_modules/
+
+# Next.js build
 .next/
+out/
+dist/
+build/
+
+# TypeScript
 *.tsbuildinfo
+
+# Environment
 .env
 .env.local
 .env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+coverage/
+.nyc_output/
+
+# Cache
+.turbo/
+.cache/
