@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Controller } from 'react-hook-form'
-import { Loader2, Pencil, Plus, RefreshCw, Trash2, Users } from 'lucide-react'
+import { Code2, Loader2, Pencil, Plus, RefreshCw, Trash2, Users } from 'lucide-react'
 import { toast } from '@/components/ui/toaster'
 import type { Team } from '@/lib/types'
 
@@ -54,6 +54,11 @@ export default function TeamsPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Team | null>(null)
   const [importingTeamId, setImportingTeamId] = useState<string | null>(null)
+
+  // HTML paste mode
+  const [htmlPasteTeam, setHtmlPasteTeam] = useState<Team | null>(null)
+  const [pastedHtml, setPastedHtml] = useState('')
+  const [htmlImporting, setHtmlImporting] = useState(false)
 
   const {
     register,
@@ -108,9 +113,16 @@ export default function TeamsPage() {
       })
       const data = await res.json()
       if (!res.ok) {
-        const debugHint = data.debug?.hint ? `\n\n${data.debug.hint}` : ''
-        const debugDetail = data.debug?.pageTitle ? `\nSeite: "${data.debug.pageTitle}" (${data.debug.tablesFound} Tabellen)` : ''
-        toast.error('Import fehlgeschlagen', `${data.error}${debugDetail}${debugHint}`)
+        if (data.useHtmlPaste) {
+          // Server couldn't fetch the page — offer HTML paste mode
+          toast.error('Automatischer Import blockiert', 'Die ÖFB-Seite blockiert den Zugriff. Bitte verwende den manuellen HTML-Import.')
+          setHtmlPasteTeam(team)
+          setPastedHtml('')
+        } else {
+          const debugHint = data.debug?.hint ? `\n\n${data.debug.hint}` : ''
+          const debugDetail = data.debug?.pageTitle ? `\nSeite: "${data.debug.pageTitle}" (${data.debug.tablesFound} Tabellen)` : ''
+          toast.error('Import fehlgeschlagen', `${data.error}${debugDetail}${debugHint}`)
+        }
       } else {
         toast.success(
           'Spielplan importiert',
@@ -121,6 +133,38 @@ export default function TeamsPage() {
       toast.error('Netzwerkfehler', 'Server nicht erreichbar.')
     } finally {
       setImportingTeamId(null)
+    }
+  }
+
+  async function handleHtmlPasteImport() {
+    if (!htmlPasteTeam || !pastedHtml.trim()) return
+    setHtmlImporting(true)
+    try {
+      const res = await fetch('/api/oefbl/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          teamId: htmlPasteTeam.id,
+          html: pastedHtml,
+          clubName: htmlPasteTeam.oefblTeamShortname || htmlPasteTeam.name,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        const debugHint = data.debug?.hint ? `\n${data.debug.hint}` : ''
+        toast.error('Import fehlgeschlagen', `${data.error}${debugHint}`)
+      } else {
+        toast.success(
+          'Spielplan importiert',
+          `${data.imported} Spiele importiert, ${data.skipped} übersprungen (Duplikat)`
+        )
+        setHtmlPasteTeam(null)
+        setPastedHtml('')
+      }
+    } catch {
+      toast.error('Netzwerkfehler', 'Server nicht erreichbar.')
+    } finally {
+      setHtmlImporting(false)
     }
   }
 
@@ -196,20 +240,31 @@ export default function TeamsPage() {
                 </div>
                 <div className="flex items-center gap-1">
                   {team.oefblUrl && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleOefblImport(team)}
-                      disabled={importingTeamId === team.id}
-                      className="h-8 w-8 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
-                      title="Spielplan importieren"
-                    >
-                      {importingTeamId === team.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <RefreshCw className="w-4 h-4" />
-                      )}
-                    </Button>
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleOefblImport(team)}
+                        disabled={importingTeamId === team.id}
+                        className="h-8 w-8 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+                        title="Spielplan importieren (automatisch)"
+                      >
+                        {importingTeamId === team.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-4 h-4" />
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => { setHtmlPasteTeam(team); setPastedHtml('') }}
+                        className="h-8 w-8 text-purple-500 hover:text-purple-700 hover:bg-purple-50"
+                        title="Spielplan manuell importieren (HTML einfügen)"
+                      >
+                        <Code2 className="w-4 h-4" />
+                      </Button>
+                    </>
                   )}
                   <Button
                     variant="ghost"
@@ -338,6 +393,65 @@ export default function TeamsPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* HTML Paste Import Dialog */}
+      <Dialog
+        open={!!htmlPasteTeam}
+        onOpenChange={(o) => !o && !htmlImporting && setHtmlPasteTeam(null)}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle style={{ fontFamily: 'Outfit, sans-serif' }}>
+              Spielplan manuell importieren
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600">
+              Team: <strong>{htmlPasteTeam?.name}</strong>
+            </p>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 space-y-1.5">
+              <p className="font-medium">Anleitung:</p>
+              <ol className="list-decimal list-inside space-y-1">
+                <li>Öffne die ÖFBL-Spielplan-Seite in deinem Browser</li>
+                <li>Rechtsklick auf die Seite → <strong>&quot;Seitenquelltext anzeigen&quot;</strong> (oder Strg+U)</li>
+                <li>Alles markieren (Strg+A), kopieren (Strg+C)</li>
+                <li>Hier einfügen (Strg+V)</li>
+              </ol>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="htmlPaste">HTML-Quelltext</Label>
+              <textarea
+                id="htmlPaste"
+                value={pastedHtml}
+                onChange={(e) => setPastedHtml(e.target.value)}
+                placeholder="<!DOCTYPE html>..."
+                className="w-full h-40 text-xs font-mono border rounded-md p-2 resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              {pastedHtml && (
+                <p className="text-[10px] text-gray-400">
+                  {pastedHtml.length.toLocaleString('de-AT')} Zeichen eingefügt
+                </p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHtmlPasteTeam(null)} disabled={htmlImporting}>
+              Abbrechen
+            </Button>
+            <Button
+              onClick={handleHtmlPasteImport}
+              disabled={htmlImporting || pastedHtml.length < 100}
+              style={{ backgroundColor: '#e94560' }}
+            >
+              {htmlImporting ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Importiere...</>
+              ) : (
+                'Spielplan importieren'
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
