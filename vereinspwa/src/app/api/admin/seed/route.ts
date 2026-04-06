@@ -4,9 +4,8 @@
  * POST   → Creates test data (all marked with _seed: true)
  * DELETE → Removes all _seed: true documents
  *
- * This replaces the CLI seed script for users who work
- * entirely through GitHub online / browser-based workflows.
- * Only accessible by admins.
+ * Uses EXISTING teams in the club — does NOT create new teams.
+ * If no teams exist, creates default teams.
  */
 import { adminAuth, adminDb } from '@/lib/firebase/admin'
 import { getClubIdFromSession } from '@/lib/firebase/getClubIdFromSession'
@@ -25,21 +24,10 @@ async function verifyAdmin(): Promise<boolean> {
   try {
     const decoded = await adminAuth.verifySessionCookie(session, true)
     const uid = decoded.uid
-
-    // First check custom claims (set by /api/admin/users)
-    if (decoded.role && ADMIN_ROLES.has(decoded.role as string)) {
-      return true
-    }
-
-    // Fallback: check Firestore adminUsers collection
-    // (needed when admin was created manually in Firebase Console)
+    if (decoded.role && ADMIN_ROLES.has(decoded.role as string)) return true
     const cId = await getClubIdFromSession()
     if (!cId) return false
-    const adminDoc = await adminDb
-      .collection('clubs').doc(cId)
-      .collection('adminUsers').doc(uid)
-      .get()
-
+    const adminDoc = await adminDb.collection('clubs').doc(cId).collection('adminUsers').doc(uid).get()
     if (adminDoc.exists) {
       const role = adminDoc.data()?.role as string
       if (ADMIN_ROLES.has(role)) {
@@ -47,28 +35,20 @@ async function verifyAdmin(): Promise<boolean> {
         return true
       }
     }
-
     return false
   } catch { return false }
 }
 
-// ─── Seed Data ────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const M = { _seed: true } // Marker on every document
+const M = { _seed: true }
 
-const TEAMS = [
-  { name: 'Herren 1', category: 'senior', color: '#1a1a2e' },
-  { name: 'Herren 2', category: 'senior', color: '#3B82F6' },
-  { name: 'U17', category: 'youth', color: '#10B981' },
-  { name: 'Damen', category: 'ladies', color: '#8B5CF6' },
-]
-
-const FIRST_M = ['Lukas','Tobias','David','Felix','Maximilian','Sebastian','Alexander','Florian','Daniel','Moritz','Jonas','Elias','Leon','Luca','Paul','Jakob','Raphael','Simon','Fabian','Niklas','Marcel','Julian','Stefan','Andreas','Patrick','Christoph','Martin','Thomas','Manuel','Kevin','Marco','Dominik','Jan','Philipp','Michael','Bernhard']
+const FIRST_M = ['Lukas','Tobias','David','Felix','Maximilian','Sebastian','Alexander','Florian','Daniel','Moritz','Jonas','Elias','Leon','Luca','Paul','Jakob','Raphael','Simon','Fabian','Niklas','Marcel','Julian','Stefan','Andreas','Patrick','Christoph','Martin','Thomas','Manuel','Kevin']
 const FIRST_F = ['Anna','Laura','Sarah','Lisa','Julia','Sophie','Lena','Hannah','Katharina','Christina','Nina','Eva','Marlene','Johanna','Clara']
-const LASTS = ['Müller','Gruber','Huber','Wagner','Steiner','Berger','Bauer','Pichler','Moser','Mayer','Hofer','Leitner','Fischer','Brunner','Schwarz','Eder','Wolf','Lang','Maier','Aigner','Wimmer','Fuchs','Reiter','Koller','Haas','Wallner','Lechner','Kern','Holzer','Stadler','Brandner','Riegler','Strasser','Winter','Sommer','Hofmann','Bruckner','Auer','Traxler']
+const LASTS = ['Müller','Gruber','Huber','Wagner','Steiner','Berger','Bauer','Pichler','Moser','Mayer','Hofer','Leitner','Fischer','Brunner','Schwarz','Eder','Wolf','Lang','Maier','Aigner','Wimmer','Fuchs','Reiter','Koller','Haas','Wallner','Lechner','Kern','Holzer','Stadler']
 const POS = ['Tormann','Abwehr','Abwehr','Abwehr','Mittelfeld','Mittelfeld','Mittelfeld','Sturm']
-const OPP = ['SC Neudorf','SV Wieselburg','ASK Markt Piesting','FC Leobersdorf']
-const DECLINE = ['injury','work','private','private']
+const OPP = ['SC Neudorf','SV Wieselburg','ASK Markt Piesting','FC Leobersdorf','SV Pottendorf','USC Kirchschlag']
+const DECLINE = ['injury','work','private','private','other']
 
 function pick<T>(a: T[]): T { return a[Math.floor(Math.random() * a.length)] }
 function rand(a: number, b: number) { return Math.floor(Math.random() * (b - a + 1)) + a }
@@ -89,7 +69,7 @@ export async function POST() {
 
   try {
     // Check if seed data already exists
-    const existingCheck = await adminDb.collection('clubs').doc(clubId).collection('teams').where('_seed', '==', true).limit(1).get()
+    const existingCheck = await adminDb.collection('clubs').doc(clubId).collection('players').where('_seed', '==', true).limit(1).get()
     if (!existingCheck.empty) {
       return NextResponse.json({ error: 'Testdaten existieren bereits. Bitte zuerst löschen.' }, { status: 409 })
     }
@@ -97,91 +77,112 @@ export async function POST() {
     const clubRef = adminDb.collection('clubs').doc(clubId)
     const now = new Date()
 
-    // 1. Update club doc with seed mode flag
-    await clubRef.set({ _seedMode: true }, { merge: true })
-
-    // 2. Teams
+    // 1. Use EXISTING teams — only create defaults if none exist
+    const existingTeams = await clubRef.collection('teams').get()
     const teamIds: string[] = []
-    for (const t of TEAMS) {
-      const ref = await clubRef.collection('teams').add({ ...M, ...t, clubId, createdAt: FieldValue.serverTimestamp() })
-      teamIds.push(ref.id)
+    let createdTeams = 0
+
+    if (existingTeams.empty) {
+      // No teams exist — create defaults
+      const defaults = [
+        { name: 'Kampfmannschaft', category: 'senior', color: '#1a1a2e' },
+        { name: 'Reserve', category: 'senior', color: '#3B82F6' },
+      ]
+      for (const t of defaults) {
+        const ref = await clubRef.collection('teams').add({ ...M, ...t, clubId, createdAt: FieldValue.serverTimestamp() })
+        teamIds.push(ref.id)
+        createdTeams++
+      }
+    } else {
+      // Use existing teams
+      existingTeams.docs.forEach(d => teamIds.push(d.id))
     }
 
-    // 3. Players
-    const players: { id: string; tIdxs: number[] }[] = []
-    const used = new Set<string>()
-    const sizes = [18, 14, 16, 14]
+    // Use first team for most data, second team if available
+    const mainTeamId = teamIds[0]
+    const secondTeamId = teamIds.length > 1 ? teamIds[1] : teamIds[0]
 
-    for (let ti = 0; ti < 4; ti++) {
-      const fNames = ti === 3 ? FIRST_F : FIRST_M
-      for (let i = 0; i < sizes[ti]; i++) {
+    // 2. Update club doc with seed mode flag
+    await clubRef.set({ _seedMode: true }, { merge: true })
+
+    // 3. Players — create for each team
+    const players: { id: string; teamIdx: number }[] = []
+    const used = new Set<string>()
+    const playersPerTeam = Math.min(16, 30 / Math.max(teamIds.length, 1))
+
+    for (let ti = 0; ti < Math.min(teamIds.length, 4); ti++) {
+      const isLadies = ti >= 3
+      const fNames = isLadies ? FIRST_F : FIRST_M
+      const count = Math.round(playersPerTeam)
+
+      for (let i = 0; i < count; i++) {
         let fn: string, ln: string, full: string
         do { fn = pick(fNames); ln = pick(LASTS); full = `${fn} ${ln}` } while (used.has(full))
         used.add(full)
 
         const tids = [teamIds[ti]]
-        if (ti === 0 && Math.random() < 0.15) tids.push(teamIds[1])
+        // Some players in both main and second team
+        if (ti === 0 && Math.random() < 0.15 && teamIds.length > 1) tids.push(secondTeamId)
 
         const ref = await clubRef.collection('players').add({
           ...M, firstName: fn, lastName: ln,
           email: `${fn.toLowerCase()}.${ln.toLowerCase().replace(/[üöä]/g, c => ({ü:'ue',ö:'oe',ä:'ae'}[c]??c))}@testverein.at`,
           phone: phone(),
-          dateOfBirth: new Date(now.getFullYear() - rand(ti === 2 ? 14 : 18, ti === 2 ? 17 : 35), rand(0,11), rand(1,28)),
+          dateOfBirth: new Date(now.getFullYear() - rand(18, 35), rand(0, 11), rand(1, 28)),
           jerseyNumber: i + 1, position: pick(POS), teamIds: tids,
           status: Math.random() < 0.08 ? 'injured' : 'active',
-          clubId, accountStatus: Math.random() < 0.7 ? 'active' : 'invited',
+          clubId, accountStatus: 'active',
           inviteTokenUsed: false, fcmTokens: [], notificationPrefs: { push: true, email: true },
           createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         })
-        players.push({ id: ref.id, tIdxs: tids.map(t => teamIds.indexOf(t)) })
+        players.push({ id: ref.id, teamIdx: ti })
       }
     }
 
-    // 4. Events + Responses
-    const evIds: { id: string; tIdx: number; date: Date; type: string }[] = []
+    // 4. Past Trainings (last 6 weeks, Tue+Thu for first 2 teams)
+    const evIds: { id: string; teamIdx: number; date: Date; type: string }[] = []
 
-    // Past trainings (6 weeks, Tue+Thu, H1+H2)
     for (let w = -6; w <= -1; w++) {
       const mon = addD(getMon(now), w * 7)
-      for (let ti = 0; ti < 2; ti++) {
+      for (let ti = 0; ti < Math.min(teamIds.length, 2); ti++) {
         for (const off of [1, 3]) {
           const d = setT(addD(mon, off), 18, 0)
           const ref = await clubRef.collection('events').add({
-            ...M, title: `Training ${TEAMS[ti].name}`, type: 'training', status: 'scheduled',
+            ...M, title: 'Training', type: 'training', status: 'scheduled',
             startDate: Timestamp.fromDate(d), endDate: Timestamp.fromDate(setT(d, 19, 30)),
-            location: 'Sportplatz Hauptfeld', teamIds: [teamIds[ti]], clubId,
+            location: 'Sportplatz', teamIds: [teamIds[ti]], clubId,
             responseCount: { accepted: 0, declined: 0, total: 0 },
             createdBy: 'seed', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
           })
-          evIds.push({ id: ref.id, tIdx: ti, date: d, type: 'training' })
+          evIds.push({ id: ref.id, teamIdx: ti, date: d, type: 'training' })
         }
       }
     }
 
-    // Past matches
-    for (let i = 0; i < 3; i++) {
-      const d = setT(addD(getMon(now), -(i + 2) * 7 + 5), 15, 0)
+    // 5. Past Matches (4 matches over the last 6 weeks)
+    for (let i = 0; i < 4; i++) {
+      const d = setT(addD(getMon(now), -(i + 1) * 14 + 5), 15, 0)
       const ref = await clubRef.collection('events').add({
         ...M, title: `Spiel vs. ${OPP[i]}`, type: 'match', status: 'scheduled',
         startDate: Timestamp.fromDate(d), endDate: Timestamp.fromDate(setT(d, 17, 0)),
-        location: i % 2 === 0 ? 'Sportplatz Hauptfeld' : 'Auswärts',
-        teamIds: [teamIds[0]], clubId,
+        location: i % 2 === 0 ? 'Sportplatz (Heim)' : OPP[i],
+        teamIds: [mainTeamId], clubId,
         responseCount: { accepted: 0, declined: 0, total: 0 },
         createdBy: 'seed', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
       })
-      evIds.push({ id: ref.id, tIdx: 0, date: d, type: 'match' })
+      evIds.push({ id: ref.id, teamIdx: 0, date: d, type: 'match' })
     }
 
-    // Future events
+    // 6. Future events (next 2 weeks trainings + 1 match + 1 club event)
     for (let w = 0; w <= 1; w++) {
       const mon = addD(getMon(now), w * 7)
-      for (let ti = 0; ti < 2; ti++) {
+      for (let ti = 0; ti < Math.min(teamIds.length, 2); ti++) {
         for (const off of [1, 3]) {
           const d = setT(addD(mon, off), 18, 0)
           await clubRef.collection('events').add({
-            ...M, title: `Training ${TEAMS[ti].name}`, type: 'training', status: 'scheduled',
+            ...M, title: 'Training', type: 'training', status: 'scheduled',
             startDate: Timestamp.fromDate(d), endDate: Timestamp.fromDate(setT(d, 19, 30)),
-            location: 'Sportplatz Hauptfeld', teamIds: [teamIds[ti]], clubId,
+            location: 'Sportplatz', teamIds: [teamIds[ti]], clubId,
             responseCount: { accepted: 0, declined: 0, total: 0 },
             createdBy: 'seed', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
           })
@@ -189,39 +190,85 @@ export async function POST() {
       }
     }
 
-    // Club event + cancelled event
-    await clubRef.collection('events').add({ ...M, title: 'Saisoneröffnungsfeier', type: 'event', status: 'scheduled', startDate: Timestamp.fromDate(setT(addD(now, 14), 18, 0)), location: 'Vereinsheim', teamIds: [], clubId, responseCount: { accepted: 0, declined: 0, total: 0 }, createdBy: 'seed', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
-    await clubRef.collection('events').add({ ...M, title: 'Training (Platzsanierung)', type: 'training', status: 'cancelled', cancelReason: 'Platz wird saniert.', startDate: Timestamp.fromDate(setT(addD(now, 3), 18, 0)), teamIds: [teamIds[0]], clubId, responseCount: { accepted: 0, declined: 0, total: 0 }, createdBy: 'seed', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
+    // Future match
+    await clubRef.collection('events').add({
+      ...M, title: `Spiel vs. ${OPP[4]}`, type: 'match', status: 'scheduled',
+      startDate: Timestamp.fromDate(setT(addD(now, 12), 16, 0)),
+      endDate: Timestamp.fromDate(setT(addD(now, 12), 18, 0)),
+      location: 'Sportplatz (Heim)', teamIds: [mainTeamId], clubId,
+      responseCount: { accepted: 0, declined: 0, total: 0 },
+      createdBy: 'seed', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+    })
 
-    // Responses on past events
+    // Club event
+    await clubRef.collection('events').add({
+      ...M, title: 'Saisoneröffnungsfeier', type: 'event', status: 'scheduled',
+      startDate: Timestamp.fromDate(setT(addD(now, 21), 18, 0)),
+      location: 'Vereinsheim', teamIds: [], clubId,
+      responseCount: { accepted: 0, declined: 0, total: 0 },
+      createdBy: 'seed', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+    })
+
+    // Cancelled event
+    await clubRef.collection('events').add({
+      ...M, title: 'Training (Platzsanierung)', type: 'training', status: 'cancelled',
+      cancelReason: 'Platz wird saniert.',
+      startDate: Timestamp.fromDate(setT(addD(now, 3), 18, 0)),
+      teamIds: [mainTeamId], clubId,
+      responseCount: { accepted: 0, declined: 0, total: 0 },
+      createdBy: 'seed', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+    })
+
+    // 7. Responses on past events (mixed accepted/declined/open)
     let respCount = 0
     for (const ev of evIds) {
-      const tp = players.filter(p => p.tIdxs.includes(ev.tIdx))
+      const tp = players.filter(p => p.teamIdx === ev.teamIdx)
       let acc = 0, dec = 0, tot = 0
       for (const pl of tp) {
-        if (Math.random() > 0.75) continue
-        const st = Math.random() < 0.8 ? 'accepted' : 'declined'
-        const data: Record<string, unknown> = { ...M, playerId: pl.id, status: st, respondedAt: Timestamp.fromDate(addD(ev.date, -rand(0, 2))), source: Math.random() < 0.7 ? 'pwa' : 'telegram' }
+        // 25% no response (offen), 60% accepted, 15% declined
+        const r = Math.random()
+        if (r > 0.75) continue // offen
+        const st = r < 0.60 ? 'accepted' : 'declined'
+        const data: Record<string, unknown> = {
+          ...M, playerId: pl.id, status: st,
+          respondedAt: Timestamp.fromDate(addD(ev.date, -rand(0, 3))),
+          source: Math.random() < 0.7 ? 'pwa' : 'telegram',
+        }
         if (st === 'declined') { data.declineCategory = pick(DECLINE); dec++ } else { acc++ }
         tot++
         await clubRef.collection('events').doc(ev.id).collection('responses').doc(pl.id).set(data)
         respCount++
       }
-      await clubRef.collection('events').doc(ev.id).update({ 'responseCount.accepted': acc, 'responseCount.declined': dec, 'responseCount.total': tot })
+      await clubRef.collection('events').doc(ev.id).update({
+        'responseCount.accepted': acc,
+        'responseCount.declined': dec,
+        'responseCount.total': tot,
+      })
     }
 
-    // Match stats
-    const matchEvs = evIds.filter(e => e.type === 'match').slice(0, 3)
-    const results = [[3,1],[0,2],[1,1]]
+    // 8. Match reports with player stats
+    const matchEvs = evIds.filter(e => e.type === 'match')
+    const results = [[3, 1], [0, 2], [1, 1], [2, 0]]
     for (let i = 0; i < matchEvs.length; i++) {
-      const tp = players.filter(p => p.tIdxs.includes(matchEvs[i].tIdx)).slice(0, 14)
+      const tp = players.filter(p => p.teamIdx === matchEvs[i].teamIdx).slice(0, 14)
+      if (tp.length < 11) continue
+
       await clubRef.collection('matchStats').add({
-        ...M, eventId: matchEvs[i].id, teamId: teamIds[0], opponent: OPP[i],
+        ...M, eventId: matchEvs[i].id, teamId: mainTeamId, opponent: OPP[i],
         homeOrAway: i % 2 === 0 ? 'home' : 'away',
         result: { goalsFor: results[i][0], goalsAgainst: results[i][1] },
         playerMinutes: [
-          ...tp.slice(0, 11).map(p => ({ playerId: p.id, minuteIn: 0, minuteOut: 90, isStarter: true, goals: Math.random() < 0.15 ? 1 : 0, assists: Math.random() < 0.1 ? 1 : 0, yellowCards: Math.random() < 0.15 ? 1 : 0, redCard: false })),
-          ...tp.slice(11, 14).map(p => ({ playerId: p.id, minuteIn: rand(55, 75), minuteOut: 90, isStarter: false, goals: 0, assists: 0, yellowCards: 0, redCard: false })),
+          ...tp.slice(0, 11).map(p => ({
+            playerId: p.id, minuteIn: 0, minuteOut: 90, isStarter: true,
+            goals: Math.random() < 0.2 ? 1 : 0,
+            assists: Math.random() < 0.15 ? 1 : 0,
+            yellowCards: Math.random() < 0.12 ? 1 : 0,
+            redCard: false,
+          })),
+          ...tp.slice(11, 14).map(p => ({
+            playerId: p.id, minuteIn: rand(55, 75), minuteOut: 90, isStarter: false,
+            goals: 0, assists: 0, yellowCards: 0, redCard: false,
+          })),
         ],
         clubId, createdAt: Timestamp.fromDate(matchEvs[i].date),
       })
@@ -230,7 +277,8 @@ export async function POST() {
     return NextResponse.json({
       message: 'Testdaten erstellt',
       stats: {
-        teams: TEAMS.length,
+        teamsUsed: teamIds.length,
+        teamsCreated: createdTeams,
         players: players.length,
         events: evIds.length + 10,
         responses: respCount,
@@ -254,7 +302,7 @@ export async function DELETE() {
     const seedClubId = await getClubIdFromSession()
     if (!seedClubId) return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 })
     const clubRef = adminDb.collection('clubs').doc(seedClubId)
-    const subs = ['players', 'teams', 'events', 'adminUsers', 'matchStats', 'messages']
+    const subs = ['players', 'teams', 'events', 'matchStats', 'messages']
     let total = 0
 
     for (const sub of subs) {

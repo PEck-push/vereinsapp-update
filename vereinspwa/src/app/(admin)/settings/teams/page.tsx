@@ -104,11 +104,13 @@ export default function TeamsPage() {
       const res = await fetch('/api/oefbl/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamId: team.id, oefblUrl: team.oefblUrl, clubName: '' }),
+        body: JSON.stringify({ teamId: team.id, oefblUrl: team.oefblUrl, clubName: team.oefblTeamShortname || team.name }),
       })
       const data = await res.json()
       if (!res.ok) {
-        toast.error('Import fehlgeschlagen', data.error)
+        const debugHint = data.debug?.hint ? `\n\n${data.debug.hint}` : ''
+        const debugDetail = data.debug?.pageTitle ? `\nSeite: "${data.debug.pageTitle}" (${data.debug.tablesFound} Tabellen)` : ''
+        toast.error('Import fehlgeschlagen', `${data.error}${debugDetail}${debugHint}`)
       } else {
         toast.success(
           'Spielplan importiert',
