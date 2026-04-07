@@ -9,7 +9,7 @@
  * Contact message — Player shares phone number for auto-matching
  */
 
-import { getFirestore } from 'firebase-admin/firestore'
+import { db } from './db'
 import {
   sendMessage,
   type TelegramMessage,
@@ -60,7 +60,7 @@ export async function handleSetupCommand(message: TelegramMessage): Promise<void
   }
 
   // Find team by name
-  const db = getFirestore()
+
   const teamsSnap = await db
     .collection('clubs').doc(CLUB_ID)
     .collection('teams')
@@ -104,7 +104,7 @@ async function linkGroupToTeam(
   teamId: string,
   teamName: string
 ): Promise<void> {
-  const db = getFirestore()
+
 
   // Save group ID on team
   await db
@@ -148,7 +148,7 @@ export async function handleStartCommand(message: TelegramMessage): Promise<void
   let contextMsg = ''
   if (startParam.startsWith('link_')) {
     const teamId = startParam.replace('link_', '')
-    const db = getFirestore()
+  
     const teamSnap = await db
       .collection('clubs').doc(CLUB_ID)
       .collection('teams').doc(teamId)
@@ -244,7 +244,7 @@ export async function handleStatusCommand(message: TelegramMessage): Promise<voi
   }
 
   // Group: show team link status
-  const db = getFirestore()
+
   const teamsSnap = await db
     .collection('clubs').doc(CLUB_ID)
     .collection('teams')

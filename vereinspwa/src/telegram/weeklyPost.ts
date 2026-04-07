@@ -9,7 +9,8 @@
  * Also posts a header message summarizing the week.
  */
 
-import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore'
+import { Timestamp, FieldValue } from 'firebase-admin/firestore'
+import { db } from './db'
 import { sendMessage } from './api'
 import {
   formatEventMessage,
@@ -20,7 +21,7 @@ import {
 const CLUB_ID = process.env.NEXT_PUBLIC_CLUB_ID ?? process.env.CLUB_ID ?? 'default-club'
 
 export async function runWeeklyDigest(): Promise<void> {
-  const db = getFirestore()
+
 
   // ── 1. Find all teams with Telegram groups ──
   const teamsSnap = await db

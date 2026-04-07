@@ -8,7 +8,8 @@
  * 4. Update the Telegram message with new counts + names
  */
 
-import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore'
+import { FieldValue, Timestamp } from 'firebase-admin/firestore'
+import { db } from './db'
 import {
   answerCallbackQuery,
   editMessageText,
@@ -32,7 +33,7 @@ export async function handleResponseCallback(
   eventId: string,
   action: string
 ): Promise<void> {
-  const db = getFirestore()
+
   const telegramUserId = callback.from.id
 
   // 1. Find the linked player
@@ -126,7 +127,7 @@ async function writeResponse(
   status: 'accepted' | 'declined',
   declineCategory?: string
 ): Promise<void> {
-  const db = getFirestore()
+
   const responseRef = db
     .collection('clubs').doc(CLUB_ID)
     .collection('events').doc(eventId)
@@ -181,7 +182,7 @@ async function refreshEventMessage(
   chatId: number,
   messageId: number
 ): Promise<void> {
-  const db = getFirestore()
+
 
   // Load event
   const eventSnap = await db

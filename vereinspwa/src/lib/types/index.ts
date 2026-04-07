@@ -148,7 +148,7 @@ export interface EventResponse {
   reason?: string
   declineCategory?: DeclineCategory
   respondedAt: Date
-  source: 'pwa' | 'email'
+  source: 'pwa' | 'email' | 'telegram'
 }
 
 export interface PlayerMinutes {

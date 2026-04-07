@@ -8,7 +8,7 @@
  * Default country code: +43 (Austria). Configurable per club later.
  */
 
-import { getFirestore } from 'firebase-admin/firestore'
+import { db } from './db'
 
 const DEFAULT_COUNTRY_CODE = '43' // Austria
 
@@ -47,7 +47,7 @@ export async function findPlayerByPhone(
   telegramPhone: string,
   teamIds?: string[]
 ): Promise<{ playerId: string; playerName: string } | null> {
-  const db = getFirestore()
+
   const normalizedTelegram = normalizePhone(telegramPhone)
 
   if (normalizedTelegram.length < 8) {
@@ -98,7 +98,7 @@ export async function linkTelegramToPlayer(
   telegramUserId: number,
   telegramUsername?: string
 ): Promise<void> {
-  const db = getFirestore()
+
   await db
     .collection('clubs')
     .doc(clubId)
@@ -117,7 +117,7 @@ export async function findPlayerByTelegramId(
   clubId: string,
   telegramUserId: number
 ): Promise<{ playerId: string; playerName: string } | null> {
-  const db = getFirestore()
+
 
   const snap = await db
     .collection('clubs')
